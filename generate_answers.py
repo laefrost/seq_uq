@@ -54,7 +54,10 @@ def main(args):
         generated_text, sampled_tokens, gen_ids = llm.generate_with_topk(prompt=prompt, k = k)
         current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
         
-        acc = metric(generated_text, example, llm)
+        if task_type == 'qa':
+            acc = metric(generated_text, example, llm)
+        else:
+            acc = None
         
         generations.append({
             'example' : example,

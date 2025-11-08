@@ -7,4 +7,21 @@ def load_ds(dataset_name, seed, add_options=None, num_samples = 5):
         dataset = load_dataset("mandarjoshi/trivia_qa", "rc.nocontext", split="validation")
         sampled_examples = random.sample(list(dataset), num_samples)
     
+
+    elif dataset_name == 'facutal_bio':
+        sampled_examples = [
+            {'question' : 'Who is John Russel Reynolds?'}, 
+            {'question' : 'Who is Adja Yunkers?'},
+            {'question' : 'Who is Bert Deacon?'},
+            {'question' : "Who is Freddie Frith?"}, 
+            {'question' : 'Who is Wilhelm Windelband?'},
+            {'question' : "Who is Moisés Kaufman?"},
+            {'question' : 'Who is Laurent Koscielny?'},
+            {'question' : "Who is Véra Korène?"},
+            {'question' : 'Who is Leana de Bruin?'},
+            {'question' : 'Who is Tera Van Beilen?}'}
+        ]
+    
     return sampled_examples
+   
+    
