@@ -9,8 +9,8 @@ class LLM():
     def __init__(self, storage_type = 'local', model_id = 'openai/gpt-oss-20b'): 
         self.storage_type = storage_type
         if storage_type == 'hf_inference': 
-            self.client = InferenceClient(model=model_id, token="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")
-            # self.client = InferenceClient(token="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")
+            self.client = InferenceClient(model=model_id, token="")
+            # self.client = InferenceClient(token="")
 
         else: 
             if 'mistral' in model_id.lower():
