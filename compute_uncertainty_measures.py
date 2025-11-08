@@ -186,7 +186,9 @@ def main(args):
                     'true_answer' : example['answer'], 
                     'sampled_tokens' : sampled_tokens,
                     'acc' : element['acc']})
-        
+    
+    
+    save(uqs, f'{exp_name}_{ds_name}_uqs.pkl')
         
 if __name__ == '__main__':
     parser = get_parser()
