@@ -170,8 +170,16 @@ def main(args):
         # entropies = se_pipe(example['question'], seq_tokens, ellm, tokenizer)
         
         # Verschiedene Versionen von PKE
-        pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas = pke_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'])
-        pkes_word_emb, pkes_word_delta, pkes_word_grad  = pke_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=True)
+        try:
+            pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas = pke_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'])
+        except:
+            pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas = None, None, None, None
+        
+        try:
+            pkes_word_emb, pkes_word_delta, pkes_word_grad  = pke_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=True)
+        except:
+            pkes_word_emb, pkes_word_delta, pkes_word_grad = None, None, None
+        
         #{'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'pkes': pkes, 'true_answer' : example['answer']}#['aliases']}
         uqs.append({'question': example['question'], 
                     'gen_text' : element['generated_text'], 
