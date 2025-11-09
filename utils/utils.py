@@ -40,7 +40,7 @@ def get_parser():
     )
     parser.add_argument(
         "--dataset", type=str, default="trivia_qa",
-        choices=['trivia_qa', 'squad', 'bioasq', 'nq', 'svamp'],
+        choices=['trivia_qa', 'factual_bio'],
         help="Dataset to use")
     
     parser.add_argument(
