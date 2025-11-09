@@ -69,6 +69,8 @@ def get_parser():
 def construct_prompt(question, task_type = 'qa'):
     if task_type == 'qa': 
         return f"You are a helpful assistant. Answer the following question in ONE short sentence. {question}" 
+    elif task_type == 'bio': 
+        return f"You are a helpful assistant. {question}" 
     
 
 def model_based_metric(predicted_answer, example, model):
