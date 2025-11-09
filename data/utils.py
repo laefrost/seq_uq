@@ -8,7 +8,7 @@ def load_ds(dataset_name, seed, add_options=None, num_samples = 5):
         sampled_examples = random.sample(list(dataset), num_samples)
     
 
-    elif dataset_name == 'facutal_bio':
+    elif dataset_name == 'factual_bio':
         sampled_examples = [
             {'question' : 'Who is John Russel Reynolds?'}, 
             {'question' : 'Who is Adja Yunkers?'},
