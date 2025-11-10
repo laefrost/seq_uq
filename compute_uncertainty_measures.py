@@ -50,7 +50,9 @@ def pke_pipe_across_tokens(seq_tokens, emb_model, question):
 
 def pke_pipe_across_words(instance, emb_model, tokenizer, consider_types = False):
     skipped = 0 
-    pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]"
+    # pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]"
+    pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n"
+
     generated_words = re.findall(pattern, instance['generated_text'])
     question = instance['example']['question']
     l = 1
@@ -66,8 +68,14 @@ def pke_pipe_across_words(instance, emb_model, tokenizer, consider_types = False
         torch.cuda.empty_cache()
 
         emb_model.zero_grad(set_to_none=True)        
-        corresponding_tokens = tokenizer.tokenize(word)
+        corresponding_tokens_raw = tokenizer.tokenize(word)
         current_sequence = ' '.join(generated_words[:w+1])
+        
+        corresponding_tokens = []
+        for i, t in enumerate(corresponding_tokens_raw):
+            if t == '▁' and i + 1 < len(corresponding_tokens_raw) and corresponding_tokens_raw[i + 1] == '<0x0A>':
+                continue  # skip the dummy space before newline
+            corresponding_tokens.append(t)
 
         emb_model.eval()
         with torch.no_grad():
@@ -121,6 +129,7 @@ def pke_pipe_across_words(instance, emb_model, tokenizer, consider_types = False
 
 
         delta_embs = previous_emb - alternative_sequences_emb.detach().cpu().numpy()
+        delta_embs = delta_embs / (np.linalg.norm(delta_embs, axis=1, keepdims=True) + 1e-12)
         
         mask_pos = None
         
@@ -176,7 +185,7 @@ def main(args):
             pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas = None, None, None, None
         
         try:
-            pkes_word_emb, pkes_word_delta, pkes_word_grad  = pke_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=True)
+            pkes_word_emb, pkes_word_delta, pkes_word_grad  = pke_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=False)
         except:
             pkes_word_emb, pkes_word_delta, pkes_word_grad = None, None, None
         
