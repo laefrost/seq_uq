@@ -10,6 +10,7 @@ from sentence_transformers import SentenceTransformer
 from models.models import * 
 from uncertainty_metrics.se import * 
 from uncertainty_metrics.pke import *
+from uncertainty_metrics.vne import *
 from utils.subsequences import generate_subsequences, remove_subsequences
 from sklearn.metrics.pairwise import cosine_distances, euclidean_distances, paired_cosine_distances, polynomial_kernel, cosine_similarity
 from utils.utils import get_parser, construct_prompt, save, get_metric, setup_logger, load
@@ -24,14 +25,15 @@ def se_pipe(question, seq_tokens, ellm, tokenizer):
     return entropies # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
 
 
-def pke_pipe_across_tokens(seq_tokens, emb_model, question):
+def uq_pipe_across_tokens(seq_tokens, emb_model, question):
     kes_og = []
     kes_sum = []
     kes_word = []
     kes_deltas = []
+    vnes = []
+    vnes_delta = []
     prev_seq = question
     for s in seq_tokens: 
-        print(s['s_decoded'])
         ems = emb_model.encode([question + ' ' + s for s in s['s_decoded']], normalize_embeddings=True) # 10, 384
         ems_word = emb_model.encode(s['s_str'], normalize_embeddings=True)
         prev_ems = emb_model.encode(prev_seq)
@@ -39,55 +41,98 @@ def pke_pipe_across_tokens(seq_tokens, emb_model, question):
         ke_2 = kernel_noise(ems + ems_word, kernel=lambda x, y: cosine_similarity(x, y))
         ke_3 = kernel_noise(ems_word, kernel=lambda x, y: cosine_similarity(x, y))
         embedding_deltas = prev_ems - ems
+        embedding_deltas = embedding_deltas / (np.linalg.norm(embedding_deltas, axis=1, keepdims=True) + 1e-12)
         ke_deltas = kernel_noise(embedding_deltas, kernel=lambda x, y: cosine_similarity(x, y))
+        vne_deltas = vne(embedding_deltas, kernel=lambda x, y: cosine_similarity(x, y))
+        vne_emb = vne(ems, kernel=lambda x, y: cosine_similarity(x, y))
+        
         kes_og.append(ke_1)
         kes_sum.append(ke_2)
         kes_word.append(ke_3)
         kes_deltas.append(ke_deltas)
-    return kes_og, kes_sum, kes_word, kes_deltas
+        vnes_delta.append(vne_deltas)
+        vnes.append(vne_emb)
+    return kes_og, kes_sum, kes_word, kes_deltas, vnes, vnes_delta
 
 
 
-def pke_pipe_across_words(instance, emb_model, tokenizer, consider_types = False):
+def uq_pipe_across_words(instance, emb_model, tokenizer, consider_types = False):
     skipped = 0 
     # pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]"
-    pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n"
+    pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|\(|\)|</s>|\'|\"|\?|\!"
 
+    
+    gen_text = tokenizer.decode(instance['gen_ids'], skip_special_tokens=True)
     generated_words = re.findall(pattern, instance['generated_text'])
     question = instance['example']['question']
+    tokens = instance['gen_ids']
     l = 1
     kes_emb = []
     kes_delta = []
     kes_grad = []
+    vnes_grad = []
+    vnes = []
+    vnes_delta = []
     previous_seq = question
-    
+    consider_types = False
+
     if consider_types: 
         nlp = spacy.load("en_core_web_sm")
 
+    token_idx = 0
+    skipped_words = 0
+
     for w, word in enumerate(generated_words): 
         torch.cuda.empty_cache()
+        if skipped_words > 0: 
+            skipped_words = skipped_words - 1
+            skipped = skipped - 1 
+            continue
 
         emb_model.zero_grad(set_to_none=True)        
         corresponding_tokens_raw = tokenizer.tokenize(word)
         current_sequence = ' '.join(generated_words[:w+1])
         
-        corresponding_tokens = []
-        for i, t in enumerate(corresponding_tokens_raw):
-            if t == '▁' and i + 1 < len(corresponding_tokens_raw) and corresponding_tokens_raw[i + 1] == '<0x0A>':
-                continue  # skip the dummy space before newline
-            corresponding_tokens.append(t)
-
+        # print('ct: ', corresponding_tokens_raw)
+        
+        word_tokens = [tokens[token_idx]]
+        decoded_tokens = tokenizer.decode(word_tokens)
+        #print('tokenized tokens:', decoded_tokens, len(decoded_tokens),'word', word, len(word))
+        if len(decoded_tokens) < len(word):   
+            #print('decoded tokens smaller than word')
+            while decoded_tokens != word:
+                #print('tokenized tokens:', decoded_tokens, 'word', word)
+                token_idx = token_idx + 1 
+                word_tokens.append(tokens[token_idx])
+                decoded_tokens = tokenizer.decode(word_tokens)
+        else:
+            # print('either word or bigger')
+            skipped_words = 0
+            while decoded_tokens != word and skipped_words < len(generated_words):
+                    # print('tokenized tokens:', decoded_tokens,'word', word)
+                    skipped_words = skipped_words + 1 
+                    #word_tokens.append(tokens[token_idx])
+                    word = word + generated_words[w+1]
+        
+        token_idx = token_idx + 1 
+        # corresponding_tokens = []
+        # for i, t in enumerate(corresponding_tokens_raw):
+        #     if t == '▁' and i + 1 < len(corresponding_tokens_raw) and corresponding_tokens_raw[i + 1] == '<0x0A>':
+        #         continue  # skip the dummy space before newline
+        #     corresponding_tokens.append(t)
+        # print('finallllll:', decoded_tokens, len(decoded_tokens),'word', word, len(word))
         emb_model.eval()
         with torch.no_grad():
-            if len(corresponding_tokens) > 1: 
+            if len(word_tokens) > 1: 
                 alternative_sequences = []
-                for i, token in enumerate(corresponding_tokens):
+                for i, token in enumerate(word_tokens):
                     alternative_sequences.extend([question + ' ' + t for t in instance['seq_tokens'][w + skipped + i]['s_decoded']])
                 
                 alternative_sequences = remove_subsequences(alternative_sequences)
                 # Since we skipped the tokens belonging to the current word
-                skipped = skipped + len(corresponding_tokens) - 1
+                skipped = skipped + len(word_tokens) - 1
             else: 
+                # print('index looke at: ', w + skipped)
                 alternative_sequences = [question + ' ' + t for t in instance['seq_tokens'][w + skipped]['s_decoded']] #test_case['seq_tokens'][w + skipped]['s_decoded']
             previous_emb = emb_model.encode(previous_seq)
         
@@ -150,9 +195,18 @@ def pke_pipe_across_words(instance, emb_model, tokenizer, consider_types = False
         kes_emb.append(ke)
         kes_delta.append(ke_delta)
         kes_grad.append(ke_grad)
+        
+        vne = vne(Y = alternative_sequences_emb.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
+        vne_delta = vne(Y = delta_embs, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
+        vne_grad = vne(Y = grad_mean.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
+        
+        vnes.append(vne)
+        vnes_delta.append(vne_delta)
+        vnes_grad.append(vne_grad)
+        
         previous_seq = question + ' ' + current_sequence
     
-    return kes_emb, kes_delta, kes_grad        
+    return kes_emb, kes_delta, kes_grad, vnes, vnes_delta, vnes_grad            
         
         
 def main(args): 
@@ -165,7 +219,7 @@ def main(args):
     
     # Initialize model
     llm = LLM(model_id=model_id)
-    emb_model = SentenceTransformer("all-MiniLM-L6-v2")
+    emb_model = SentenceTransformer("intfloat/e5-large-v2") #SentenceTransformer("all-MiniLM-L6-v2")
     
     uqs = []
     for e, element in enumerate(generations): 
@@ -178,16 +232,15 @@ def main(args):
         # TODO: Hier einmal die OG und dann die angepasste Version nehmen
         # entropies = se_pipe(example['question'], seq_tokens, ellm, tokenizer)
         
-        # Verschiedene Versionen von PKE
         try:
-            pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas = pke_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'])
+            pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas, vnes_token_emb, vnes_token_deltas = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'])
         except:
-            pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas = None, None, None, None
+            pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas, vnes_token_emb, vnes_token_deltas = None, None, None, None, None, None
         
         try:
-            pkes_word_emb, pkes_word_delta, pkes_word_grad  = pke_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=False)
+            pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad  = uq_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=False)
         except:
-            pkes_word_emb, pkes_word_delta, pkes_word_grad = None, None, None
+            pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad = None, None, None, None, None, None
         
         #{'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'pkes': pkes, 'true_answer' : example['answer']}#['aliases']}
         uqs.append({'question': example['question'], 
@@ -196,10 +249,15 @@ def main(args):
                     'pkes_token_emb': pkes_token_emb, 
                     'pkes_token_sum' : pkes_token_sum, 
                     'pkes_token_word' : pkes_token_word, 
-                    'pke_token_deltas': pke_token_deltas, 
+                    'pkes_token_deltas': pke_token_deltas, 
                     'pkes_word_emb': pkes_word_emb, 
-                    'pkes_word_delta' : pkes_word_delta, 
-                    'pkes_word_grad' : pkes_word_grad, 
+                    'pkes_word_deltas' : pkes_word_deltas, 
+                    'pkes_word_grad' : pkes_word_grad,
+                    'vnes_token_deltas' : vnes_token_deltas, 
+                    'vnes_token_emb' : vnes_token_emb, 
+                    'vnes_word_emb' : vnes_word_emb,
+                    'vnes_word_deltas' : vnes_word_deltas, 
+                    'vnes_word_grad' : vnes_word_grad,
                     'true_answer' : example['answer'], 
                     'sampled_tokens' : sampled_tokens,
                     'acc' : element['acc']})
