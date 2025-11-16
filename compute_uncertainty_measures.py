@@ -186,7 +186,11 @@ def uq_pipe_across_words(instance, emb_model, tokenizer, consider_types = False)
                 word_pos.append(doc[-1].pos_)
             
             word_pos = np.array(word_pos)
-            mask_pos = (word_pos[:, None] != word_pos).astype(int)
+            # mask_pos = (word_pos[:, None] != word_pos).astype(int)
+            special_mask = np.isin(word_pos, ["PUNCT", "SPACE"])
+
+            # mask[i, j] = 1 if either i or j is PUNCT/SPACE, else 0
+            mask_pos = (special_mask[:, None] | special_mask[None, :]).astype(int)
             
         ke = kernel_noise(Y = alternative_sequences_emb.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
         ke_delta = kernel_noise(Y = delta_embs, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
