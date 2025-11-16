@@ -59,7 +59,7 @@ def uq_pipe_across_tokens(seq_tokens, emb_model, question):
 def uq_pipe_across_words(instance, emb_model, tokenizer, consider_types = False):
     skipped = 0 
     # pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]"
-    pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|\(|\)|</s>|\'|\"|\?|\!"
+    pattern = r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|\(|\)|</s>|\'|\"|\?|\!|\`|\´|\-|-"
 
     
     gen_text = tokenizer.decode(instance['gen_ids'], skip_special_tokens=True)
@@ -196,11 +196,11 @@ def uq_pipe_across_words(instance, emb_model, tokenizer, consider_types = False)
         kes_delta.append(ke_delta)
         kes_grad.append(ke_grad)
         
-        vne = vne(Y = alternative_sequences_emb.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
+        vne_emb = vne(Y = alternative_sequences_emb.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
         vne_delta = vne(Y = delta_embs, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
         vne_grad = vne(Y = grad_mean.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
         
-        vnes.append(vne)
+        vnes.append(vne_emb)
         vnes_delta.append(vne_delta)
         vnes_grad.append(vne_grad)
         
@@ -211,6 +211,7 @@ def uq_pipe_across_words(instance, emb_model, tokenizer, consider_types = False)
         
 def main(args): 
     model_id = args.model_id
+    emb_model_id = args.emb_model_id
     exp_name = args.exp_name
     ds_name = args.dataset
     
@@ -219,7 +220,8 @@ def main(args):
     
     # Initialize model
     llm = LLM(model_id=model_id)
-    emb_model = SentenceTransformer("intfloat/e5-large-v2") #SentenceTransformer("all-MiniLM-L6-v2")
+    
+    emb_model = SentenceTransformer(emb_model_id) #SentenceTransformer("all-MiniLM-L6-v2")
     
     uqs = []
     for e, element in enumerate(generations): 
