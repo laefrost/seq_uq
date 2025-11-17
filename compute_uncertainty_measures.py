@@ -25,18 +25,18 @@ def se_pipe(question, seq_tokens, ellm, tokenizer):
     return entropies # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
 
 
-def uq_pipe_across_tokens(seq_tokens, emb_model, question):
+def uq_pipe_across_tokens(seq_tokens, emb_model, question, tokenizer):
     kes_og = []
     kes_sum = []
     kes_word = []
     kes_deltas = []
     vnes = []
     vnes_delta = []
-    prev_seq = question
-    for s in seq_tokens: 
+    for s_index, s in enumerate(seq_tokens): 
         ems = emb_model.encode([question + ' ' + s for s in s['s_decoded']], normalize_embeddings=True) # 10, 384
         ems_word = emb_model.encode(s['s_str'], normalize_embeddings=True)
-        prev_ems = emb_model.encode(prev_seq)
+        prev_seq = prev_seq + tokenizer.decode(s['current_seq'], skip_special_tokens=True)
+        prev_ems = emb_model.encode(prev_seq, normalize_embeddings=True)
         ke_1 = kernel_noise(ems, kernel=lambda x, y: cosine_similarity(x, y))
         ke_2 = kernel_noise(ems + ems_word, kernel=lambda x, y: cosine_similarity(x, y))
         ke_3 = kernel_noise(ems_word, kernel=lambda x, y: cosine_similarity(x, y))
@@ -52,6 +52,7 @@ def uq_pipe_across_tokens(seq_tokens, emb_model, question):
         kes_deltas.append(ke_deltas)
         vnes_delta.append(vne_deltas)
         vnes.append(vne_emb)
+        
     return kes_og, kes_sum, kes_word, kes_deltas, vnes, vnes_delta
 
 
