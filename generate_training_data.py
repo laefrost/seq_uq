@@ -54,8 +54,6 @@ def main(args):
         generated_text, sampled_tokens, gen_ids = llm.generate_with_topk(prompt=prompt, k = k)
         current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
         
-        del llm
-        
         generations.append({
             'example' : example,
             'generated_text' : generated_text, 
@@ -64,6 +62,8 @@ def main(args):
             'seq_tokens' : seq_tokens, 
             'current_probs' : current_probs}
         )
+        
+    del llm
     
     save(generations, f'{exp_name}_{ds_name}_data_generations.pkl')
     save(experiment_details, f'{exp_name}_{ds_name}__data_details.pkl')
