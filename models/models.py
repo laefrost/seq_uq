@@ -4,6 +4,7 @@ from huggingface_hub import notebook_login, login
 import numpy as np
 from huggingface_hub import InferenceClient
 import os, gc
+import re
 
 class LLM(): 
     def __init__(self, storage_type = 'local', model_id = 'openai/gpt-oss-20b'): 
@@ -250,23 +251,38 @@ class EntailmentLLM(LLM):
             pad_token_id=self.tokenizer.eos_token_id,
         )
 
-        scores = []
-        for out in outputs:
-            if out[0]["generated_text"] is not None: 
-                text = out[0]["generated_text"].lower()
+        # scores = []
+        # for out in outputs:
+        #     if out[0]["generated_text"] is not None: 
+        #         text = out[0]["generated_text"].lower()
 
-                if mode == 'data':
-                    if '-1' in text:
-                        scores.append(-1)
-                    elif '1' in text:
-                        scores.append(1)
-                    elif '0' in text:
-                        scores.append(0)
-                    else:
-                        scores.append(-100000)
-                else:
-                    scores.append(text)
-            else: 
+        #         if mode == 'data':
+        #             if '-1' in text:
+        #                 scores.append(-1)
+        #             elif '1' in text:
+        #                 scores.append(1)
+        #             elif '0' in text:
+        #                 scores.append(0)
+        #             else:
+        #                 scores.append(-100000)
+        #         else:
+        #             scores.append(text)
+        #     else: 
+        #         scores.append(-100000)
+
+        # return scores
+        
+        scores = []
+        for i, out in enumerate(outputs):
+            full = out[0]["generated_text"]
+            prompt = prompts[i]
+            generated = full[len(prompt):].strip().lower()
+
+            # strict extraction
+            m = re.search(r'\b(-1|0|1)\b', generated)
+            if m:
+                scores.append(int(m.group(1)))
+            else:
                 scores.append(-100000)
 
         return scores
