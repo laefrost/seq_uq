@@ -116,8 +116,44 @@ class EntailmentLLM(LLM):
             prompt += "Here are two possible partly evolved subsequences: \n"
             prompt += f"Possible Answer 1: {text1}\nPossible Answer 2: {text2}\n"
             prompt += "Does Possible Answer 1 semantically entail Possible Answer 2? Respond with entailment, contradiction, or neutral."""
-        else: 
+        elif mode == 'data': 
             prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
+            Sequence 1: {text1}\nSequence 2: {text2}\n
+            Will Sequence 1 semantically lead to a completley different meaning to the question than Sequence 2? Completley different means that there is no way that both sequences can have the same semantic meaning when more tokens are added in the future.
+            Will Sequence 1 semantically lead to the same meaning to the question as Sequence 2? The same means that the most important aspects about the answer are already within the sequence and regradless of the extra fluff we add, this meaning will not change.
+            Respond with -1 if the sequences will surely lead to different meanings, with 1 if the will lead to the same meaning and with 0 if ypu are unsure or one can not tell yet.          
+            Example 1: \n
+            Question: Who was the lead singer of Nirvana? \n
+            Possible Answer 1: The lead singer was Kurt \n
+            Possible Answer 2: The lead singer was Tom  \n
+            Response: -1
+            
+            Example 2: \n
+            Question: Who was the lead singer of Nirvana? \n
+            Possible Answer 1: The lead singer was Kurt \n
+            Possible Answer 2: The lead singer was the \n
+            Response: 0
+            
+            Example 3: \n
+            Question: In what did Madonna graduate? \n
+            Possible Answer 1: Madonna graduated in arts \n
+            Possible Answer 2: Madonna graduated in painting \n
+            Response: 1
+            
+            Example 4: \n
+            Question: In what did Madonna graduate? \n
+            Possible Answer 1: Madonna graduated in swimming \n
+            Possible Answer 2: Madonna graduated in painting \n
+            Response: -1
+            
+            Example 5: \n
+            Question: In what did Madonna graduate? \n
+            Possible Answer 1: Madonna graduated in 1998 \n
+            Possible Answer 2: Madonna graduated in painting \n
+            Response: 0
+            """
+        else: 
+           prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
             Sequence 1: {text1}\nSequence 2: {text2}\n
             Will Sequence 1 semantically lead to a completley different meaning to the question than Sequence 2? Completley different means that there is no way that both sequences can have the same semantic meaning when more tokens are added in the future.
             Respond with True if the sequences will surely lead to different answers and with False if not.
@@ -130,10 +166,11 @@ class EntailmentLLM(LLM):
             
             Example 1: \n
             Question: Who was the lead singer of Nirvana? \n
-            Possible Answer 1: Kurt \n
-            Possible Answer 2: The \n
+            Possible Answer 1: The lead singer was Kurt \n
+            Possible Answer 2: The lead singer was The \n
             Response: No
             """
+             
         return prompt
             
 
@@ -158,7 +195,15 @@ class EntailmentLLM(LLM):
                 return 0
             else:
                 return 'I am lost'
-        
+        elif mode == 'data': 
+            if '-1' in binary_response:
+                return -1
+            elif '1' in binary_response:
+                return 1
+            elif '0' in binary_response:
+                return 0
+            else:
+                return -100000
         else: 
             if 'False' in binary_response:
                 return 2
