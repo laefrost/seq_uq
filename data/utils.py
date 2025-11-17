@@ -6,6 +6,9 @@ def load_ds(dataset_name, seed, add_options=None, num_samples = 5):
     if dataset_name == 'trivia_qa':
         dataset = load_dataset("mandarjoshi/trivia_qa", "rc.nocontext", split="validation")
         sampled_examples = random.sample(list(dataset), num_samples)
+    if dataset_name == 'trivia_qa_train':
+        dataset = load_dataset("mandarjoshi/trivia_qa", "rc.nocontext", split="train")
+        sampled_examples = random.sample(list(dataset), num_samples)
     
 
     elif dataset_name == 'factual_bio':
