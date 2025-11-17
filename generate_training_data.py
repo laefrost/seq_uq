@@ -93,7 +93,7 @@ def main(args):
                     if (i, j) in checked_ids: 
                         continue
                     if i == j or string1 == string2: 
-                        score1, score2 = 1
+                        score1, score2 = 1, 1
                     else: 
                         score1 = ellm.check_implication(string1, string2, question=example, mode = 'data')
                         score2 = ellm.check_implication(string2, string1, question=example, mode = 'data')
