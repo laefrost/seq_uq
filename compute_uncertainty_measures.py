@@ -19,8 +19,8 @@ from data.utils import load_ds
 
 setup_logger()
 
-def se_pipe(question, seq_tokens, ellm, tokenizer): 
-    cluster_ids_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, tokenizer=tokenizer)
+def se_pipe(question, seq_tokens, ellm, mode = 'adapted'): 
+    cluster_ids_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, mode=mode)
     entropies = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens)    
     return entropies # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
 
@@ -233,6 +233,7 @@ def uq_pipe_across_words(instance, emb_model, tokenizer, consider_types = False)
 def main(args): 
     model_id = args.model_id
     emb_model_id = args.emb_model_id
+    ellm_model_id = args.ellm_model_id
     exp_name = args.exp_name
     ds_name = args.dataset
     consider_types = args.consider_types
@@ -242,6 +243,8 @@ def main(args):
     
     # Initialize model
     llm = LLM(model_id=model_id)
+    if model_id != ellm_model_id: 
+        ellm = EntailmentLLM(model_id=ellm_model_id)
     
     emb_model = SentenceTransformer(emb_model_id) #SentenceTransformer("all-MiniLM-L6-v2")
     tokenizer_emb = AutoTokenizer.from_pretrained("sentence-transformers/" + emb_model_id)
@@ -255,7 +258,10 @@ def main(args):
         sampled_tokens = element['sampled_tokens']
         
         # TODO: Hier einmal die OG und dann die angepasste Version nehmen
-        # entropies = se_pipe(example['question'], seq_tokens, ellm, tokenizer)
+        if model_id != ellm_model_id: 
+            ses_tokens = se_pipe(example['question'], seq_tokens, ellm)
+        else: 
+            ses_tokens = se_pipe(example['question'], seq_tokens, llm)
         
         try:
             pkes_token_emb, pkes_token_sum, pkes_token_word, pkes_token_deltas, pkes_token_token, vnes_token_emb, vnes_token_deltas, vnes_token_token = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
@@ -271,6 +277,7 @@ def main(args):
         uqs.append({'question': example['question'], 
                     'gen_text' : element['generated_text'], 
                     'gen_ids' : gen_ids, 
+                    'ses_token' : ses_tokens, 
                     'pkes_token_emb': pkes_token_emb, 
                     'pkes_token_sum' : pkes_token_sum, 
                     'pkes_token_word' : pkes_token_word, 
@@ -289,7 +296,9 @@ def main(args):
                     'sampled_tokens' : sampled_tokens,
                     'acc' : element['acc']})
     
-    
+    if model_id != ellm_model_id:
+        del ellm
+    del llm
     save(uqs, f'{exp_name}_{ds_name}_uqs.pkl')
         
 if __name__ == '__main__':

@@ -37,6 +37,12 @@ def get_parser():
     parser.add_argument(
         "--emb_model_id", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID", choices=['all-MiniLM-L6-v2', 'intfloat/e5-large-v2']
     )
+    parser.add_argument(
+        "--eval_model_id", type=str, default="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ", help="Model ID of evaluation model",
+    )
+    parser.add_argument(
+        "--ellm_model_id", type=str, default="openai/gpt-oss-20b", help="Model ID of NLI model",
+    )
     
     parser.add_argument(
         "--consider_types", default=False,

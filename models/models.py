@@ -26,6 +26,14 @@ class LLM():
                         "cpu": "16GiB"   # spill the rest to system RAM
                     }
                 )
+            
+            if 'oss' in model_id.lower(): 
+                self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    "openai/gpt-oss-20b",
+                    device_map="auto",
+                    torch_dtype=torch.float16,
+                )
     
     def predict(self, prompt, temperature = 0.9, return_all = False): 
         if self.storage_type == 'hf_inference': 

@@ -1,14 +1,14 @@
 import numpy as np
 
-def get_semantic_ids(strings_list, model, strict_entailment=False, example=None):
+def get_semantic_ids(strings_list, model, strict_entailment=False, example=None, mode = 'adapted'):
     def are_equivalent(text1, text2):
         #print(text1, text2)
         implication_1, implication_2 = None, None
         while implication_1 not in [0, 1, 2]: 
-            implication_1 = model.check_implication(text1, text2, question=example)
+            implication_1 = model.check_implication(text1, text2, question=example, mode = mode)
         
         while implication_2 not in [0, 1, 2]:
-            implication_2 = model.check_implication(text2, text1, question=example)  
+            implication_2 = model.check_implication(text2, text1, question=example, mode = mode)  
         # print('implcations ',implication_1, implication_2)
         assert (implication_1 in [0, 1, 2]) and (implication_2 in [0, 1, 2])
 
@@ -93,7 +93,7 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens):
     return entropies
 
 
-def generate_semantic_subsequence_ids(seq_tokens, question, ellm, tokenizer): 
+def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapted'): 
     cluster_ids_across_steps = []
     for s, step in enumerate(seq_tokens): 
         current_step = step.get('s', None)
@@ -105,7 +105,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, tokenizer):
             # decoded_seqs = [tokenizer.decode(ids) for ids in current_step]
             decoded_seqs = step.get('s_decoded', None)
             print('decoded_seqs ', decoded_seqs)
-            cluster_ids = get_semantic_ids(strings_list=decoded_seqs, model = ellm, example=question)
+            cluster_ids = get_semantic_ids(strings_list=decoded_seqs, model = ellm, example=question, mode=mode)
         cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
         
     return cluster_ids_across_steps

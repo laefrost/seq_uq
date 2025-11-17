@@ -25,6 +25,7 @@ def main(args):
     logging.info('Dataset loaded!')
     
     model_id = args.model_id
+    eval_model_id = args.eval_model_id
     exp_name = args.exp_name
     ds_name = args.dataset
     task_type = args.task_type
@@ -54,8 +55,11 @@ def main(args):
         generated_text, sampled_tokens, gen_ids = llm.generate_with_topk(prompt=prompt, k = k)
         current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
         
+        del llm
+        
+        llm_eval = LLM(model_id=eval_model_id)
         if task_type == 'qa':
-            acc = metric(generated_text, example, llm)
+            acc = metric(generated_text, example, llm_eval)
         else:
             acc = None
         
@@ -76,7 +80,7 @@ def main(args):
     save(generations, f'{exp_name}_{ds_name}_generations.pkl')
     save(experiment_details, f'{exp_name}_{ds_name}_experiment_details.pkl')
     logging.info('Run complete.')
-    del llm
+    del llm_eval
 
 
 if __name__ == '__main__':
