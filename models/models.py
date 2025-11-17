@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, set_seed
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, set_seed, pipeline
 from huggingface_hub import notebook_login, login
 import numpy as np
 from huggingface_hub import InferenceClient
@@ -116,6 +116,16 @@ class LLM():
 class EntailmentLLM(LLM):
     def __init__(self, storage_type='local', model_id=None):
         super().__init__(storage_type, model_id)
+        if storage_type == "local":
+            self.pipe = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+                device_map="auto",
+                torch_dtype=torch.float16,
+            )
+        else:
+            self.pipe = None
     
     def equivalence_prompt(self, text1, text2, question, mode = 'og'):
         if mode == 'og': 
@@ -223,3 +233,40 @@ class EntailmentLLM(LLM):
         else: 
             if mode == 'data': 
                 return -100000
+
+    def check_implication_batch(self, batch_pairs, question, mode="data"):
+        prompts = [
+            self.equivalence_prompt(t1, t2, question=question, mode=mode)
+            for (t1, t2) in batch_pairs
+        ]
+
+        if self.storage_type == "hf_inference":
+            return [self.check_implication(t1, t2, question, mode) for t1, t2 in batch_pairs]
+
+        outputs = self.pipe(
+            prompts,
+            max_new_tokens=32,
+            do_sample=False,
+            pad_token_id=self.tokenizer.eos_token_id,
+        )
+
+        scores = []
+        for out in outputs:
+            if out[0]["generated_text"] is not None: 
+                text = out[0]["generated_text"].lower()
+
+                if mode == 'data':
+                    if '-1' in text:
+                        scores.append(-1)
+                    elif '1' in text:
+                        scores.append(1)
+                    elif '0' in text:
+                        scores.append(0)
+                    else:
+                        scores.append(-100000)
+                else:
+                    scores.append(text)
+            else: 
+                scores.append(-100000)
+
+        return scores

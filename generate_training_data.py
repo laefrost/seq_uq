@@ -75,7 +75,7 @@ def main(args):
     
     ellm = EntailmentLLM(model_id=ellm_model_id)
 
-    
+    MAX_BATCH = 32
     for e, element in enumerate(generations): 
         logging.info(element['generated_text'])
         example = element['example']
@@ -83,41 +83,56 @@ def main(args):
         gen_ids = element['gen_ids']
         seq_tokens = element['seq_tokens']
         sampled_tokens = element['sampled_tokens']
-                    
+                            
         for s, step in enumerate(seq_tokens): 
             decoded_seqs = step.get('s_decoded', None) 
-            checked_ids = []               
+            decoded_seqs = list(set(decoded_seqs))
+            
+            if len(decoded_seqs) == 1: 
+                continue
+                
+            checked_ids = []   
+            batched_pairs = []            
             for i, string1 in enumerate(decoded_seqs):
                 for j in range(i, len(decoded_seqs)):
                     string2 = decoded_seqs[j]
                     if (i, j) in checked_ids: 
                         continue
-                    if i == j or string1 == string2: 
-                        score = 1
-                    else: 
-                        score = ellm.check_implication(string1, string2, question=example, mode = 'data')
+                    # if i == j or string1 == string2: 
+                    #     score = 1
+                    # else: 
+                        #score = ellm.check_implication(string1, string2, question=example, mode = 'data')
                         # score2 = ellm.check_implication(string2, string1, question=example, mode = 'data')
                     
                     # if score1 != score2:
                     #     score = -100000
                     # else: 
                     #     score = score2
-                    
+                    batched_pairs.append((string1, string2))
                     checked_ids.append((i, j))
                     checked_ids.append((j, i))
                     
-                    entry = {
-                        'generated_text' : element['generated_text'],
-                        'true_answer': element['example']['answer'],
-                        'question' : question,
-                        'index' : s, 
-                        'text1' : string1, 
-                        'text2' : string2, 
-                        'score' : score
-                    }
-                    
-                    entries.append(entry)
-    
+            all_scores = []
+
+            for b in range(0, len(batched_pairs), MAX_BATCH):
+                sub = batched_pairs[b:b+MAX_BATCH]
+                scores = ellm.check_implication_batch(sub, question)
+                all_scores.extend(scores)       
+                
+                
+            # 5. Store results
+            for (p1, p2), score in zip(batched_pairs, scores):
+                entry = {
+                    'generated_text': element['generated_text'],
+                    'true_answer': element['example']['answer'],
+                    'question': question,
+                    'index': s,
+                    'text1': p1,
+                    'text2': p2,
+                    'score': score,
+                }
+                entries.append(entry)
+                
     save(entries, f'{exp_name}_{ds_name}_data.pkl')
     del ellm
     
