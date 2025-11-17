@@ -74,7 +74,6 @@ def uq_pipe_across_words(instance, emb_model, tokenizer, consider_types = False)
     vnes = []
     vnes_delta = []
     previous_seq = question
-    consider_types = False
 
     if consider_types: 
         nlp = spacy.load("en_core_web_sm")
@@ -187,7 +186,7 @@ def uq_pipe_across_words(instance, emb_model, tokenizer, consider_types = False)
             
             word_pos = np.array(word_pos)
             # mask_pos = (word_pos[:, None] != word_pos).astype(int)
-            special_mask = np.isin(word_pos, ["PUNCT", "SPACE"])
+            special_mask = np.isin(word_pos, ["PUNCT", "SPACE", "SYM"])
 
             # mask[i, j] = 1 if either i or j is PUNCT/SPACE, else 0
             mask_pos = (special_mask[:, None] | special_mask[None, :]).astype(int)
