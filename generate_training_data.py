@@ -119,9 +119,9 @@ def main(args):
                 scores = ellm.check_implication_batch(sub, question)
                 all_scores.extend(scores)       
                 
-                
+            logging.info('scores: ', all_scores)   
             # 5. Store results
-            for (p1, p2), score in zip(batched_pairs, scores):
+            for (p1, p2), score in zip(batched_pairs, all_scores):
                 entry = {
                     'generated_text': element['generated_text'],
                     'true_answer': element['example']['answer'],
