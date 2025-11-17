@@ -118,6 +118,7 @@ def main(args):
                     entries.append(entry)
     
     save(entries, f'{exp_name}_{ds_name}_data_generations.pkl')
+    del ellm
     
     
 if __name__ == '__main__':
