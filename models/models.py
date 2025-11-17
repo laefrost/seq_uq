@@ -29,10 +29,17 @@ class LLM():
             
             if 'oss' in model_id.lower(): 
                 self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+                # self.model = AutoModelForCausalLM.from_pretrained(
+                #     "openai/gpt-oss-20b",
+                #     device_map="auto",
+                #     torch_dtype=torch.float16,
+                # )
                 self.model = AutoModelForCausalLM.from_pretrained(
-                    "openai/gpt-oss-20b",
+                    'unsloth/gpt-oss-20b-bnb-4bit',
                     device_map="auto",
-                    torch_dtype=torch.float16,
+                    load_in_4bit=True,
+                    torch_dtype="auto",
+                    trust_remote_code=True
                 )
     
     def predict(self, prompt, temperature = 0.9, return_all = False): 
