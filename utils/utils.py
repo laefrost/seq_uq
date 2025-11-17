@@ -37,6 +37,13 @@ def get_parser():
     parser.add_argument(
         "--emb_model_id", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID", choices=['all-MiniLM-L6-v2', 'intfloat/e5-large-v2']
     )
+    
+    parser.add_argument(
+        "--consider_types", default=False,
+        action=argparse.BooleanOptionalAction,
+        help='Mask word types during UQ'
+    )
+    
     parser.add_argument(
         "--model_max_new_tokens", type=int, default=50,
         help="Max number of tokens generated.",

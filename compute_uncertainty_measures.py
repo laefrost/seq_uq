@@ -218,6 +218,7 @@ def main(args):
     emb_model_id = args.emb_model_id
     exp_name = args.exp_name
     ds_name = args.dataset
+    consider_types = args.consider_types
     
     generations = load(f'{exp_name}_{ds_name}_generations.pkl')
     logging.info('Dataset loaded!')
@@ -244,7 +245,7 @@ def main(args):
             pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas, vnes_token_emb, vnes_token_deltas = None, None, None, None, None, None
         
         try:
-            pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad  = uq_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=False)
+            pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad  = uq_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=consider_types)
         except:
             pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad = None, None, None, None, None, None
         
