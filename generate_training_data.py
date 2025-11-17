@@ -77,7 +77,7 @@ def main(args):
 
     
     for e, element in enumerate(generations): 
-        print(element['generated_text'])
+        logging.info(element['generated_text'])
         example = element['example']
         question = example['question']
         gen_ids = element['gen_ids']
