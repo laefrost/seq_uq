@@ -25,35 +25,52 @@ def se_pipe(question, seq_tokens, ellm, tokenizer):
     return entropies # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
 
 
-def uq_pipe_across_tokens(seq_tokens, emb_model, question, tokenizer):
+def uq_pipe_across_tokens(seq_tokens, emb_model, question, gen_ids, tokenizer_llm, tokenizer_emb):
     kes_og = []
     kes_sum = []
     kes_word = []
     kes_deltas = []
+    kes_tokens = []
     vnes = []
     vnes_delta = []
+    vnes_tokens = []
     for s_index, s in enumerate(seq_tokens): 
         ems = emb_model.encode([question + ' ' + s for s in s['s_decoded']], normalize_embeddings=True) # 10, 384
         ems_word = emb_model.encode(s['s_str'], normalize_embeddings=True)
-        prev_seq = prev_seq + tokenizer.decode(s['current_seq'], skip_special_tokens=True)
+        prev_seq = question + tokenizer_llm.decode(gen_ids[:s_index], skip_special_tokens=True)
         prev_ems = emb_model.encode(prev_seq, normalize_embeddings=True)
+        inputs = tokenizer_emb([question + ' ' + s for s in s['s_decoded']], return_tensors="pt", truncation=True, padding=True, max_length=512).to('cuda')
+        outputs = emb_model(input = inputs, output_hidden_states=True)
+        token_embs = outputs.token_embeddings
+        
+        last_token_indices = outputs.attention_mask.sum(dim=1) - 1  # [batch]
+        last_valid_embs = token_embs[torch.arange(len(last_token_indices)),  # batch dimension (0..B-1)
+                                     last_token_indices-1                      # different token index per batch
+                                     ].detach().cpu().numpy()
+        
         ke_1 = kernel_noise(ems, kernel=lambda x, y: cosine_similarity(x, y))
         ke_2 = kernel_noise(ems + ems_word, kernel=lambda x, y: cosine_similarity(x, y))
         ke_3 = kernel_noise(ems_word, kernel=lambda x, y: cosine_similarity(x, y))
+        ke_4 = kernel_noise(last_valid_embs, kernel=lambda x, y: cosine_similarity(x, y))
+        
         embedding_deltas = prev_ems - ems
         embedding_deltas = embedding_deltas / (np.linalg.norm(embedding_deltas, axis=1, keepdims=True) + 1e-12)
+        
         ke_deltas = kernel_noise(embedding_deltas, kernel=lambda x, y: cosine_similarity(x, y))
         vne_deltas = vne(embedding_deltas, kernel=lambda x, y: cosine_similarity(x, y))
         vne_emb = vne(ems, kernel=lambda x, y: cosine_similarity(x, y))
+        vne_tokens = vne(last_valid_embs, kernel=lambda x, y: cosine_similarity(x, y))
         
         kes_og.append(ke_1)
         kes_sum.append(ke_2)
         kes_word.append(ke_3)
+        kes_tokens.append(ke_4)
         kes_deltas.append(ke_deltas)
         vnes_delta.append(vne_deltas)
         vnes.append(vne_emb)
+        vnes_tokens.append(vne_tokens)
         
-    return kes_og, kes_sum, kes_word, kes_deltas, vnes, vnes_delta
+    return kes_og, kes_sum, kes_word, kes_deltas, kes_tokens, vnes, vnes_delta, vnes_tokens
 
 
 
@@ -227,6 +244,7 @@ def main(args):
     llm = LLM(model_id=model_id)
     
     emb_model = SentenceTransformer(emb_model_id) #SentenceTransformer("all-MiniLM-L6-v2")
+    tokenizer_emb = AutoTokenizer.from_pretrained("sentence-transformers/" + emb_model_id)
     
     uqs = []
     for e, element in enumerate(generations): 
@@ -240,9 +258,9 @@ def main(args):
         # entropies = se_pipe(example['question'], seq_tokens, ellm, tokenizer)
         
         try:
-            pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas, vnes_token_emb, vnes_token_deltas = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'])
+            pkes_token_emb, pkes_token_sum, pkes_token_word, pkes_token_deltas, pkes_token_token, vnes_token_emb, vnes_token_deltas, vnes_token_token = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
         except:
-            pkes_token_emb, pkes_token_sum, pkes_token_word, pke_token_deltas, vnes_token_emb, vnes_token_deltas = None, None, None, None, None, None
+            pkes_token_emb, pkes_token_sum, pkes_token_word, pkes_token_deltas, pkes_token_token, vnes_token_emb, vnes_token_deltas, vnes_token_token = None, None, None, None, None, None, None, None 
         
         try:
             pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad  = uq_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=consider_types)
@@ -256,7 +274,8 @@ def main(args):
                     'pkes_token_emb': pkes_token_emb, 
                     'pkes_token_sum' : pkes_token_sum, 
                     'pkes_token_word' : pkes_token_word, 
-                    'pkes_token_deltas': pke_token_deltas, 
+                    'pkes_token_deltas': pkes_token_deltas, 
+                    'pkes_token_token' : pkes_token_token, 
                     'pkes_word_emb': pkes_word_emb, 
                     'pkes_word_deltas' : pkes_word_deltas, 
                     'pkes_word_grad' : pkes_word_grad,
@@ -265,6 +284,7 @@ def main(args):
                     'vnes_word_emb' : vnes_word_emb,
                     'vnes_word_deltas' : vnes_word_deltas, 
                     'vnes_word_grad' : vnes_word_grad,
+                    'vnes_token_token' : vnes_token_token, 
                     'true_answer' : example['answer'], 
                     'sampled_tokens' : sampled_tokens,
                     'acc' : element['acc']})
