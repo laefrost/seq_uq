@@ -185,36 +185,41 @@ class EntailmentLLM(LLM):
         if question is None:
             raise ValueError
         prompt = self.equivalence_prompt(text1, text2, question, mode)
-
-        while True: 
+        counter = 0
+        while counter < 3: 
             response = self.predict(prompt, temperature=0.02)
+            counter = counter + 1
             if response is not None: 
                 break
         
-        binary_response = response.lower()[:30]
-        
-        if mode == 'og':
-            if 'entailment' in binary_response:
-                return 2
-            elif 'neutral' in binary_response:
-                return 1
-            elif 'contradiction' in binary_response:
-                return 0
-            else:
-                return 'I am lost'
-        elif mode == 'data': 
-            if '-1' in binary_response:
-                return -1
-            elif '1' in binary_response:
-                return 1
-            elif '0' in binary_response:
-                return 0
-            else:
-                return -100000
+        if response is not None: 
+            binary_response = response.lower()[:30]
+            
+            if mode == 'og':
+                if 'entailment' in binary_response:
+                    return 2
+                elif 'neutral' in binary_response:
+                    return 1
+                elif 'contradiction' in binary_response:
+                    return 0
+                else:
+                    return 'I am lost'
+            elif mode == 'data': 
+                if '-1' in binary_response:
+                    return -1
+                elif '1' in binary_response:
+                    return 1
+                elif '0' in binary_response:
+                    return 0
+                else:
+                    return -100000
+            else: 
+                if 'False' in binary_response:
+                    return 2
+                elif 'True' in binary_response:
+                    return 0
+                else:
+                    return 'I am lost'
         else: 
-            if 'False' in binary_response:
-                return 2
-            elif 'True' in binary_response:
-                return 0
-            else:
-                return 'I am lost'
+            if mode == 'data': 
+                return -100000
