@@ -118,3 +118,20 @@ def main(args):
                     entries.append(entry)
     
     save(entries, f'{exp_name}_{ds_name}_data_generations.pkl')
+    
+    
+if __name__ == '__main__':
+    parser = get_parser()
+    args, unknown = parser.parse_known_args()
+    logging.info('Starting new run with args: %s', args)
+
+    if unknown:
+        raise ValueError(f'Unkown args: {unknown}')
+
+    # if args.compute_uncertainties:
+    #     args.assign_new_wandb_id = False
+
+    # First sample generations from LLM.
+    logging.info('STARTING `generate_training_data`!')
+    main(args)
+    logging.info('FINISHED `generate_training_data`!')
