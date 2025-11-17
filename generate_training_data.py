@@ -117,7 +117,7 @@ def main(args):
                     
                     entries.append(entry)
     
-    save(entries, f'{exp_name}_{ds_name}_data_generations.pkl')
+    save(entries, f'{exp_name}_{ds_name}_data.pkl')
     del ellm
     
     
