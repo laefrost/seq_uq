@@ -94,12 +94,12 @@ def main(args):
             checked_ids = []   
             batched_pairs = []            
             for i, string1 in enumerate(decoded_seqs):
-                for j in range(i, len(decoded_seqs)):
+                for j in range(1, len(decoded_seqs)):
                     string2 = decoded_seqs[j]
                     if (i, j) in checked_ids: 
                         continue
-                    # if i == j or string1 == string2: 
-                    #     score = 1
+                    if i == j or string1 == string2: 
+                        continue
                     # else: 
                         #score = ellm.check_implication(string1, string2, question=example, mode = 'data')
                         # score2 = ellm.check_implication(string2, string1, question=example, mode = 'data')
@@ -118,8 +118,7 @@ def main(args):
                 sub = batched_pairs[b:b+MAX_BATCH]
                 scores = ellm.check_implication_batch(sub, question)
                 all_scores.extend(scores)       
-                
-            logging.info('scores: ', all_scores)   
+            logging.info(all_scores)    
             # 5. Store results
             for (p1, p2), score in zip(batched_pairs, all_scores):
                 entry = {

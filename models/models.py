@@ -56,11 +56,23 @@ class LLM():
 
             return out.choices[0].message["content"]
         else: 
-            inputs = self.tokenizer(prompt, return_tensors="pt")
-            inputs = {k_: v_.to(self.model.device) for k_, v_ in inputs.items()}
+            chat = [
+                {"role": "user", "content": prompt}
+            ]
+
+            
+            #inputs = self.tokenizer(prompt, return_tensors="pt")
+            #inputs = {k_: v_.to(self.model.device) for k_, v_ in inputs.items()}
+            
+            inputs = self.tokenizer.apply_chat_template(
+                chat,
+                add_generation_prompt=True,
+                return_tensors="pt"
+            ).to(model.device)
+            
             with torch.no_grad():
                 out = self.model.generate(
-                    **inputs,
+                    inputs,
                     do_sample=True,
                     temperature=temperature,
                     top_p=0.9,
@@ -135,41 +147,86 @@ class EntailmentLLM(LLM):
             prompt += f"Possible Answer 1: {text1}\nPossible Answer 2: {text2}\n"
             prompt += "Does Possible Answer 1 semantically entail Possible Answer 2? Respond with entailment, contradiction, or neutral."""
         elif mode == 'data': 
-            prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
-            Sequence 1: {text1}\nSequence 2: {text2}\n
-            Will Sequence 1 semantically lead to a completley different meaning to the question than Sequence 2? Completley different means that there is no way that both sequences can have the same semantic meaning when more tokens are added in the future.
-            Will Sequence 1 semantically lead to the same meaning to the question as Sequence 2? The same means that the most important aspects about the answer are already within the sequence and regradless of the extra fluff we add, this meaning will not change.
-            Respond with -1 if the sequences will surely lead to different meanings, with 1 if the will lead to the same meaning and with 0 if ypu are unsure or one can not tell yet.          
-            Example 1: \n
-            Question: Who was the lead singer of Nirvana? \n
-            Possible Answer 1: The lead singer was Kurt \n
-            Possible Answer 2: The lead singer was Tom  \n
-            Response: -1
+            # prompt = f"""We are evaluating partly evolved subsequences. 
+            # Will subsequence 1 semantically lead to a completley different meaning to the question than subsequence 2? Completley different means that, regradless of what tokens are added in the future, both subsequences already contradict each other at this state..
+            # Will subsequence 1 semantically lead to the same meaning to the question as subsequence 2? The same means that the most important aspects about the answer are already within the subsequences and regradless of what tokens are added in the future, this meaning will not change.
+            # Respond with contradiction if the subsequences will surely lead to different meanings, with entailment if they will lead to the same meaning and with neutral if you are unsure or one can not tell yet. If the subsequences are at the very start and you are not sure, also respond with neutral.       
             
-            Example 2: \n
-            Question: Who was the lead singer of Nirvana? \n
-            Possible Answer 1: The lead singer was Kurt \n
-            Possible Answer 2: The lead singer was the \n
-            Response: 0
+            # Here are some examples: \n
+            # Example 1: \n
+            # Question: Who was the lead singer of Nirvana? \n
+            # Subsequence 1: The lead singer was Kurt \n
+            # Subsequence 2: The lead singer was Tom  \n
+            # Response: contradiction\n
             
-            Example 3: \n
-            Question: In what did Madonna graduate? \n
-            Possible Answer 1: Madonna graduated in arts \n
-            Possible Answer 2: Madonna graduated in painting \n
-            Response: 1
+            # Example 2: \n
+            # Question: Who was the lead singer of Nirvana? \n
+            # Subsequence 1: The \n
+            # Subsequence 2: Kurt \n
+            # Response: neutral\n
             
-            Example 4: \n
-            Question: In what did Madonna graduate? \n
-            Possible Answer 1: Madonna graduated in swimming \n
-            Possible Answer 2: Madonna graduated in painting \n
-            Response: -1
+            # Subsequences to be analyzed: \n 
+            # Question:{question}\n 
+            # Subsequence 1: {text1}\nSubsequence 2: {text2}\n     
+            # Response: <One word only>
             
-            Example 5: \n
-            Question: In what did Madonna graduate? \n
-            Possible Answer 1: Madonna graduated in 1998 \n
-            Possible Answer 2: Madonna graduated in painting \n
-            Response: 0
-            """
+            # FINAL INSTRUCTIONS — READ CAREFULLY:
+            # You MUST answer using exactly ONE word.
+            # You MUST choose one of: contradiction, neutral, entailment.
+            # Do NOT explain your answer.
+            # Do NOT show your reasoning.
+            # Do NOT output analysis or internal thoughts.
+            # If you are unsure, answer: neutral.
+
+            # FINAL ANSWER (one word only):
+            # """
+            
+            prompt = f"""Task: Compare two partial text subsequences and determine their semantic relationship based on their final token.
+
+            DEFINITIONS:
+            - "contradiction": The subsequences will inevitably lead to different meanings, regardless of future tokens. The last tokens make them mutually exclusive.
+            - "entailment": The subsequences will lead to the same meaning, regardless of future tokens. The last tokens are semantically equivalent (e.g., synonyms).
+            - "neutral": Cannot determine yet whether they'll diverge or converge. The last token doesn't provide enough information, or future tokens could make them equivalent despite current differences.
+
+            CLASSIFICATION RULES:
+            1. Focus on how the last token relates the subsequences
+            2. Stylistic or ordering differences alone: "neutral"
+            3. Empty last tokens, spaces, or punctuation marks as one or both last tokens: "neutral"
+            4. If there is a possibilty that the two subsequences could lead to the same meaning (e.g.  due to different stylistic formulations in the future): "neutral"
+            5. Synonyms, singular/plural versions or semantically identical terms (e.g. The vs. A, pretty vs. beautiful): "entailment"
+            6. Different factual content (names, numbers, entities): "contradiction"
+
+            EXAMPLES:
+
+            Question: Who was the lead singer of Nirvana?
+            Subsequence 1: The lead singer was Kurt
+            Subsequence 2: The lead singer was Tom
+            Answer: contradiction
+            (Different names = different factual claims)
+
+            Question: Who was the lead singer of Nirvana?
+            Subsequence 1: The
+            Subsequence 2: Kurt
+            Answer: neutral
+            (Too early; "The" could lead to "The lead singer Kurt...")
+
+            Question: What color is the sky?
+            Subsequence 1: The sky is
+            Subsequence 2: The sky appears
+            Answer: neutral
+            ("is" vs "appears" is stylistic, not semantic)
+
+            NOW ANALYZE:
+            Question: {question}
+            Subsequence 1: {text1}
+            Subsequence 2: {text2}
+
+            OUTPUT INSTRUCTIONS:
+            - Respond with EXACTLY ONE WORD: contradiction, neutral, or entailment
+            - No explanations, reasoning, or additional text
+            - If uncertain, choose: neutral
+
+            Answer:"""
         else: 
            prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
             Sequence 1: {text1}\nSequence 2: {text2}\n
@@ -240,15 +297,28 @@ class EntailmentLLM(LLM):
             self.equivalence_prompt(t1, t2, question=question, mode=mode)
             for (t1, t2) in batch_pairs
         ]
-
-        if self.storage_type == "hf_inference":
-            return [self.check_implication(t1, t2, question, mode) for t1, t2 in batch_pairs]
-
+        
+        chats = [
+            [{"role": "user", "content": prompt}] for prompt in prompts            
+        ]
+        
+        # Apply the template to each batch element
+        batched_chats = [
+            self.tokenizer.apply_chat_template(
+                chat,
+                add_generation_prompt=True,
+                tokenize=False
+            )
+            for chat in chats
+        ]
+        
         outputs = self.pipe(
-            prompts,
-            max_new_tokens=32,
+            batched_chats,
+            max_new_tokens=250,
             do_sample=False,
             pad_token_id=self.tokenizer.eos_token_id,
+            return_full_text = False,
+            clean_up_tokenization_spaces = True
         )
 
         # scores = []
@@ -272,17 +342,22 @@ class EntailmentLLM(LLM):
 
         # return scores
         
+        def extract_label(text):
+            matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
+            if not matches:
+                return None
+            return matches[-1].lower()
+        
         scores = []
         for i, out in enumerate(outputs):
             full = out[0]["generated_text"]
-            prompt = prompts[i]
-            generated = full[len(prompt):].strip().lower()
+            label = extract_label(full)
+            mapping = {
+                "contradiction": -1,
+                "neutral": 0,
+                "entailment": 1,
+            }
 
-            # strict extraction
-            m = re.search(r'\b(-1|0|1)\b', generated)
-            if m:
-                scores.append(int(m.group(1)))
-            else:
-                scores.append(-100000)
-
+            value = mapping.get(label, -100000)
+            scores.append(value)
         return scores
