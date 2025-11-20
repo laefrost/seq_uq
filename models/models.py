@@ -64,15 +64,20 @@ class LLM():
             #inputs = self.tokenizer(prompt, return_tensors="pt")
             #inputs = {k_: v_.to(self.model.device) for k_, v_ in inputs.items()}
             
-            inputs = self.tokenizer.apply_chat_template(
+            encoded = self.tokenizer.apply_chat_template(
                 chat,
                 add_generation_prompt=True,
-                return_tensors="pt"
-            ).to(model.device)
-            
+                return_tensors="pt",
+                return_dict=True
+            ).to(self.model.device)
+
+            # Set pad_token_id if needed
+            if self.tokenizer.pad_token_id is None:
+                self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+
             with torch.no_grad():
                 out = self.model.generate(
-                    inputs,
+                    **encoded,  # Unpacks input_ids and attention_mask
                     do_sample=True,
                     temperature=temperature,
                     top_p=0.9,
@@ -82,11 +87,12 @@ class LLM():
                     max_new_tokens=500,
                 )
 
-            prompt_len = inputs["input_ids"].shape[-1]
+            # Get prompt length
+            prompt_length = encoded['input_ids'].shape[1]
             
             full_seq = out.sequences[0] 
             # print(prompt_len, len(full_seq))
-            gen_ids = full_seq[prompt_len:].tolist()
+            gen_ids = full_seq[prompt_length:].tolist()
             generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True)
             if return_all: 
                 return generated_text, gen_ids, out
@@ -192,7 +198,7 @@ class EntailmentLLM(LLM):
             1. Focus on how the last token relates the subsequences
             2. Stylistic or ordering differences alone: "neutral"
             3. Empty last tokens, spaces, or punctuation marks as one or both last tokens: "neutral"
-            4. If there is a possibilty that the two subsequences could lead to the same meaning (e.g.  due to different stylistic formulations in the future): "neutral"
+            4. If the tokens refer to different topics: "neutral"
             5. Synonyms, singular/plural versions or semantically identical terms (e.g. The vs. A, pretty vs. beautiful): "entailment"
             6. Different factual content (names, numbers, entities): "contradiction"
 
@@ -215,6 +221,12 @@ class EntailmentLLM(LLM):
             Subsequence 2: The sky appears
             Answer: neutral
             ("is" vs "appears" is stylistic, not semantic)
+            
+            Question: When did Madonna graduate?
+            Subsequence 1: Madonna graduated in New York 
+            Subsequence 2: Madonna graduated in painting
+            Answer: neutral
+            ("New York" vs "painting" are differnt claim topics, that do not necessarily contradict each other)
 
             NOW ANALYZE:
             Question: {question}
