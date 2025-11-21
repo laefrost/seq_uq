@@ -73,7 +73,7 @@ def main(args):
     
     entries = []
     
-    ellm = EntailmentLLM(model_id=ellm_model_id)
+    ellm = LLM(model_id=ellm_model_id)
 
     MAX_BATCH = 32
     for e, element in enumerate(generations): 

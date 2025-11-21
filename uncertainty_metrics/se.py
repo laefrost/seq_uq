@@ -40,6 +40,9 @@ def get_semantic_ids(strings_list, model, strict_entailment=False, example=None,
             next_id += 1
 
     assert -1 not in semantic_set_ids
+    
+    
+    
 
     return semantic_set_ids
 
@@ -84,7 +87,7 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens):
     counter = 0
     # Compute semantic entropy.
     for ids, probs in zip(cluster_ids_across_steps, seq_tokens): 
-        probs_step = probs['p_s']
+        probs_step = probs['alternative_sequence_probs']
         semantic_ids = ids['cluster_ids']
         probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
         pe = predictive_entropy_rao(probs_per_semantic_id)
@@ -95,17 +98,78 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens):
 
 def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapted'): 
     cluster_ids_across_steps = []
+    MAX_BATCH = 32
+    # for s, step in enumerate(seq_tokens): 
+    #     decoded_seqs = step.get('alternative_sequence_decoded', None)
+    #     set_step = set(tuple(sublist) for sublist in decoded_seqs)
+    #     if len(set_step) == 1: 
+    #         cluster_ids = [0] * len(decoded_seqs)
+    #     else: 
+    #         # decoded_seqs = [tokenizer.decode(ids) for ids in current_step]
+            
+    #         print('alternative_sequence_decoded ', decoded_seqs)
+    #         cluster_ids = get_semantic_ids(strings_list=decoded_seqs, model = ellm, example=question, mode=mode)
+    #     cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
+    
     for s, step in enumerate(seq_tokens): 
-        current_step = step.get('s', None)
-        print(current_step)
-        set_step = set(tuple(sublist) for sublist in current_step)
+        print('s----------------------', s)
+        decoded_seqs = step.get('alternative_sequence_decoded', None) 
+        set_step = set(tuple(sublist) for sublist in decoded_seqs)
+        print(decoded_seqs)
         if len(set_step) == 1: 
-            cluster_ids = [0] * len(current_step)
-        else: 
-            # decoded_seqs = [tokenizer.decode(ids) for ids in current_step]
-            decoded_seqs = step.get('s_decoded', None)
-            print('decoded_seqs ', decoded_seqs)
-            cluster_ids = get_semantic_ids(strings_list=decoded_seqs, model = ellm, example=question, mode=mode)
-        cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
+            cluster_ids = [0] * len(decoded_seqs)
+        else:     
+            indices = []   
+            batched_pairs = [] 
+            for i, string1 in enumerate(decoded_seqs):
+                for j in range(i+1, len(decoded_seqs)):
+                    string2 = decoded_seqs[j]
+                    if string1 == string2: 
+                        continue
+                    indices.append((i,j))
+                    batched_pairs.append((string1, string2))
+                    
+            all_scores = []
+            print('checking implcations')
+            for b in range(0, len(batched_pairs), MAX_BATCH):
+                sub = batched_pairs[b:b+MAX_BATCH]
+                scores= ellm.check_implication_batch(sub, question, mode)
+                all_scores.extend(scores)
+            
+            print('implcations checked')
+            score_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), np.nan)
+
+            for idx, score in enumerate(all_scores):
+                i = indices[idx][0]
+                j = indices[idx][1]
+                score_matrix[i, j] = score
+                score_matrix[j, i] = score
+
+            
+            entailment_score = 1 if mode == 'data' else 2 
+            
+            score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)    
+            print(score_matrix)       
+            cluster_ids = [-1] * len(decoded_seqs)
+            next_id = 0
+            for i, string1 in enumerate(decoded_seqs):
+                # Check if string1 already has an id assigned.
+                if cluster_ids[i] == -1:
+                    # If string1 has not been assigned an id, assign it next_id.
+                    cluster_ids[i] = next_id
+                    for j in range(i+1, len(decoded_seqs)):
+                        # Search through all remaining strings. If they are equivalent to string1, assign them the same id.
+                        # if are_equivalent(string1, strings_list[j]):
+                        #    semantic_set_ids[j] = next_id
+                        if score_matrix[i, j] == entailment_score:
+                            cluster_ids[j] = next_id
+                    next_id += 1
+
+            assert -1 not in cluster_ids
         
+        cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
+        assert len(cluster_ids_across_steps) == len(seq_tokens)
+    
     return cluster_ids_across_steps
+            
+        

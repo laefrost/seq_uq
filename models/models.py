@@ -12,7 +12,6 @@ class LLM():
         if storage_type == 'hf_inference': 
             self.client = InferenceClient(model=model_id, token="")
             # self.client = InferenceClient(token="")
-
         else: 
             if 'mistral' in model_id.lower():
                 self.tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -42,6 +41,15 @@ class LLM():
                     torch_dtype="auto",
                     trust_remote_code=True
                 )
+                
+                
+            self.pipe = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+                device_map="auto",
+                torch_dtype=torch.float16,
+            )
     
     def predict(self, prompt, temperature = 0.9, return_all = False): 
         if self.storage_type == 'hf_inference': 
@@ -59,8 +67,6 @@ class LLM():
             chat = [
                 {"role": "user", "content": prompt}
             ]
-
-            
             #inputs = self.tokenizer(prompt, return_tensors="pt")
             #inputs = {k_: v_.to(self.model.device) for k_, v_ in inputs.items()}
             
@@ -131,20 +137,6 @@ class LLM():
 
         generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=False)
         return generated_text, step_samples, gen_ids
-    
-class EntailmentLLM(LLM):
-    def __init__(self, storage_type='local', model_id=None):
-        super().__init__(storage_type, model_id)
-        if storage_type == "local":
-            self.pipe = pipeline(
-                "text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer,
-                device_map="auto",
-                torch_dtype=torch.float16,
-            )
-        else:
-            self.pipe = None
     
     def equivalence_prompt(self, text1, text2, question, mode = 'og'):
         if mode == 'og': 
@@ -239,23 +231,23 @@ class EntailmentLLM(LLM):
             - If uncertain, choose: neutral
 
             Answer:"""
-        else: 
+        elif mode == 'adapted': 
            prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
             Sequence 1: {text1}\nSequence 2: {text2}\n
             Will Sequence 1 semantically lead to a completley different meaning to the question than Sequence 2? Completley different means that there is no way that both sequences can have the same semantic meaning when more tokens are added in the future.
-            Respond with True if the sequences will surely lead to different answers and with False if not.
+            Respond with False if the sequences will surely lead to different answers and with True if not.
             
             Example 1: \n
             Question: Who was the lead singer of Nirvana? \n
             Possible Answer 1: The lead singer was Kurt \n
             Possible Answer 2: The lead singer was Tom  \n
-            Response: Yes
+            Response: False
             
             Example 1: \n
             Question: Who was the lead singer of Nirvana? \n
             Possible Answer 1: The lead singer was Kurt \n
-            Possible Answer 2: The lead singer was The \n
-            Response: No
+            Possible Answer 2: The lead singer was the \n
+            Response: True
             """
              
         return prompt
@@ -283,7 +275,7 @@ class EntailmentLLM(LLM):
                 elif 'contradiction' in binary_response:
                     return 0
                 else:
-                    return 'I am lost'
+                    return -1
             elif mode == 'data': 
                 if '-1' in binary_response:
                     return -1
@@ -293,13 +285,13 @@ class EntailmentLLM(LLM):
                     return 0
                 else:
                     return -100000
-            else: 
-                if 'False' in binary_response:
+            elif mode == 'adapted': 
+                if 'True' in binary_response:
                     return 2
-                elif 'True' in binary_response:
+                elif 'False' in binary_response:
                     return 0
                 else:
-                    return 'I am lost'
+                    return -1
         else: 
             if mode == 'data': 
                 return -100000
@@ -332,30 +324,12 @@ class EntailmentLLM(LLM):
             return_full_text = False,
             clean_up_tokenization_spaces = True
         )
-
-        # scores = []
-        # for out in outputs:
-        #     if out[0]["generated_text"] is not None: 
-        #         text = out[0]["generated_text"].lower()
-
-        #         if mode == 'data':
-        #             if '-1' in text:
-        #                 scores.append(-1)
-        #             elif '1' in text:
-        #                 scores.append(1)
-        #             elif '0' in text:
-        #                 scores.append(0)
-        #             else:
-        #                 scores.append(-100000)
-        #         else:
-        #             scores.append(text)
-        #     else: 
-        #         scores.append(-100000)
-
-        # return scores
         
-        def extract_label(text):
-            matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
+        def extract_label(text, mode):
+            if mode == "data": 
+                matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
+            else: 
+                matches = re.findall(r'\b(true|false)\b', text, flags=re.IGNORECASE)
             if not matches:
                 return None
             return matches[-1].lower()
@@ -363,13 +337,29 @@ class EntailmentLLM(LLM):
         scores = []
         for i, out in enumerate(outputs):
             full = out[0]["generated_text"]
-            label = extract_label(full)
-            mapping = {
-                "contradiction": -1,
-                "neutral": 0,
-                "entailment": 1,
-            }
-
-            value = mapping.get(label, -100000)
+            label = extract_label(full, mode)
+            
+            if mode == 'data':
+                mapping = {
+                    "contradiction": -1,
+                    "neutral": 0,
+                    "entailment": 1,
+                }
+                value = mapping.get(label, -100000)
+            elif mode == 'og':
+                mapping = {
+                    "contradiction": 0,
+                    "neutral": 1,
+                    "entailment": 2,
+                }
+                value = mapping.get(label, -1)
+            elif mode == 'adapted': 
+                mapping = {
+                    "false": 0,
+                    "true": 2}                
+                value = mapping.get(label, -1)
+            
             scores.append(value)
         return scores
+    
+    
