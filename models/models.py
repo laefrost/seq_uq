@@ -130,7 +130,8 @@ class LLM():
                 })
                 # if tok_id == gen_ids[step_idx]: 
                 #     current_probs = float(probs[tok_id].item())
-            step_samples.append({'current_seq' : gen_ids[:step_idx],
+            step_samples.append({'current_seq' : gen_ids[:step_idx+1],
+                                 'prev_seq' : gen_ids[:step_idx],
                                  # 'current_seq_decoded' : self.tokenizer.decode(gen_ids[:step_idx], skip_special_tokens=True),
                                  'current_prob' : current_probs, 
                                  'sampled_tokens' : sampled})
