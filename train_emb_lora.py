@@ -112,7 +112,7 @@ def setup_model(model_name: str, use_lora: bool = True):
             target_modules=["query", "key", "value"],  # Specify target modules
         )
         model.add_adapter(peft_config)
-        logger.info(f"LoRA adapter added. Trainable parameters: {model.num_parameters(only_trainable=True):,}")
+        logger.info(f"LoRA adapter added. Trainable parameters: {model._parameters}")
     
     return model, model_name_only
 
