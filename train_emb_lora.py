@@ -1,6 +1,7 @@
 import logging
 import sys
 import traceback
+import pandas as pd
 
 from datasets import Dataset, load_dataset
 from peft import LoraConfig, TaskType
@@ -53,8 +54,23 @@ model.add_adapter(peft_config)
 # train_dataset: Dataset = dataset_dict["train"].select(range(1_000_000))
 # eval_dataset: Dataset = dataset_dict["test"]
 # Was brauche ich: sentence1, sentence2, score
-train_dict = load('finetuning/train_dict.pkl')
-val_dict = load('finetuning/train_dict.pkl')
+train_df = pd.read_excel('finetuning/train.xlsx')
+val_df = pd.read_excel('finetuning/val.xlsx')
+
+# Clean NaN values
+for df in [train_df, val_df]:
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].fillna('').astype(str)
+        else:
+            df[col] = df[col].fillna(0)
+
+train_dict= train_df.to_dict('records') 
+val_dict= val_df.to_dict('records') 
+
+# # Create datasets from cleaned DataFrames
+# train_dataset = Dataset.from_pandas(train_df)
+# eval_dataset = Dataset.from_pandas(val_df)
 
 train_dataset: Dataset = Dataset.from_list(train_dict)#load_dataset("csv", data_files="my_file.csv") #Dataset.from_dict()
 eval_dataset: Dataset = Dataset.from_list(val_dict)#load_dataset("csv", data_files="my_file.csv") #Dataset.from_dict()
@@ -67,7 +83,8 @@ args = SentenceTransformerTrainingArguments(
     # Required parameter:
     output_dir=f"models/{run_name}",
     # Optional training parameters:
-    num_train_epochs=10,
+    num_train_epochs=500,
+    report_to = "none", 
     per_device_train_batch_size=32,
     per_device_eval_batch_size=32,
     learning_rate=2e-5,
