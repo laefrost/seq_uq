@@ -16,6 +16,8 @@ from sklearn.metrics.pairwise import cosine_distances, euclidean_distances, pair
 from utils.utils import get_parser, construct_prompt, save, get_metric, setup_logger, load
 from data.utils import load_ds
 
+#  --emb_model_id=models_peft/all-MiniLM-L6-v2-peft/final
+
 
 setup_logger()
 
@@ -41,11 +43,11 @@ def uq_pipe_across_tokens(seq_tokens, emb_model, question, gen_ids, tokenizer_ll
     vnes_delta = []
     vnes_tokens = []
     for s_index, s in enumerate(seq_tokens): 
-        ems = emb_model.encode([question + ' ' + s for s in s['s_decoded']], normalize_embeddings=True) # 10, 384
-        ems_word = emb_model.encode(s['s_str'], normalize_embeddings=True)
+        ems = emb_model.encode([question + ' ' + s for s in s['alternative_sequence_decoded']], normalize_embeddings=True) # 10, 384
+        ems_word = emb_model.encode(s['alternative_tokens_str'], normalize_embeddings=True)
         prev_seq = question + tokenizer_llm.decode(gen_ids[:s_index], skip_special_tokens=True)
         prev_ems = emb_model.encode(prev_seq, normalize_embeddings=True)
-        inputs = tokenizer_emb([question + ' ' + s for s in s['s_decoded']], return_tensors="pt", truncation=True, padding=True, max_length=512).to('cuda')
+        inputs = tokenizer_emb([question + ' ' + s for s in s['alternative_sequence_decoded']], return_tensors="pt", truncation=True, padding=True, max_length=512).to('cuda')
         outputs = emb_model(input = inputs, output_hidden_states=True)
         token_embs = outputs.token_embeddings
         
@@ -90,7 +92,8 @@ def uq_pipe_across_words(seq_words, emb_model, consider_types = False):
     
     if consider_types: 
         nlp = spacy.load("en_core_web_sm")
-
+    print('lllllääääääääääääääääääääääääääääääääääääääääääääääääänge: ', len(seq_words))
+    print(seq_words)
     for s_index, s in enumerate(seq_words): 
         previous_seq = s['prev_seq']
         alternative_sequences = s['alternative_sequence_decoded']
@@ -118,6 +121,7 @@ def uq_pipe_across_words(seq_words, emb_model, consider_types = False):
             current_seq_tokens = emb_model.tokenizer(current_sequence, return_tensors="pt", padding=True, truncation=True).to(device)
             
             alternative_sequences_emb = emb_model(inputs)['sentence_embedding']
+            print(alternative_sequences_emb.shape)
             
             loss_fn = F.l1_loss(alternative_sequences_emb, -alternative_sequences_emb)
             loss_fn.backward()
@@ -128,14 +132,14 @@ def uq_pipe_across_words(seq_words, emb_model, consider_types = False):
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
-        with torch.no_grad():  
-            e = latest_grads[0].shape[1]-1
-            mask = inputs['attention_mask'].unsqueeze(-1)  # shape (batch, seq_len, 1)
-            masked_grads = latest_grads[0] * mask
-            grad = masked_grads[:, l:e ,:]
-            grad_copy = grad.detach().clone()
-            l = current_seq_tokens['input_ids'][0].shape[0]-2
-            grad_mean = torch.mean(grad_copy, dim=1).to('cpu')
+        # with torch.no_grad():  
+        #     e = latest_grads[0].shape[1]-1
+        #     mask = inputs['attention_mask'].unsqueeze(-1)  # shape (batch, seq_len, 1)
+        #     masked_grads = latest_grads[0] * mask
+        #     grad = masked_grads[:, l:e ,:]
+        #     grad_copy = grad.detach().clone()
+        #     l = current_seq_tokens['input_ids'][0].shape[0]-2
+        #     grad_mean = torch.mean(grad_copy, dim=1).to('cpu')
 
 
         delta_embs = previous_emb - alternative_sequences_emb.detach().cpu().numpy()
@@ -159,16 +163,16 @@ def uq_pipe_across_words(seq_words, emb_model, consider_types = False):
             
         ke = kernel_noise(Y = alternative_sequences_emb.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
         ke_delta = kernel_noise(Y = delta_embs, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
-        ke_grad = kernel_noise(Y = grad_mean.detach().cpu().numpy(), kernel =lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
-
+        # ke_grad = kernel_noise(Y = grad_mean.detach().cpu().numpy(), kernel =lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
+        ke_grad = None
         kes_emb.append(ke)
         kes_delta.append(ke_delta)
         kes_grad.append(ke_grad)
         
         vne_emb = vne(Y = alternative_sequences_emb.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
         vne_delta = vne(Y = delta_embs, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
-        vne_grad = vne(Y = grad_mean.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
-        
+        # vne_grad = vne(Y = grad_mean.detach().cpu().numpy(), kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
+        vne_grad = None
         vnes.append(vne_emb)
         vnes_delta.append(vne_delta)
         vnes_grad.append(vne_grad)
@@ -347,42 +351,49 @@ def main(args):
     if model_id != ellm_model_id: 
         ellm = LLM(model_id=ellm_model_id)
     emb_model = SentenceTransformer(emb_model_id) #SentenceTransformer("all-MiniLM-L6-v2")
-    tokenizer_emb = AutoTokenizer.from_pretrained("sentence-transformers/" + emb_model_id)
+    tokenizer_emb = emb_model.tokenizer# AutoTokenizer.from_pretrained("sentence-transformers/" + emb_model_id)
     
     for e, element in enumerate(generations): 
-        print(element['generated_text'])
-        logging.info('next one')
+        logging.info(element['generated_text'])
         example = element['example']
         gen_ids = element['gen_ids']
         seq_tokens = element['seq_tokens']
         sampled_tokens = element['sampled_tokens']
         seq_words = generate_word_subsequences(seq_tokens, element['generated_text'], example['question'], gen_ids, llm.tokenizer)
-        print('length of seq words', len(seq_words))
-        # TODO: Hier einmal die OG und dann die angepasste Version nehmen
+        print('length words, tokens ',len(seq_tokens), len(seq_words))
+        
         if model_id != ellm_model_id: 
-            #try:
-            ses_words = se_pipe_across_words(example['question'], seq_words, ellm)
-            ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, ellm)
-            #except: 
-            #    ses_words = None
-            #    ses_tokens = None
+            try:
+                ses_words = se_pipe_across_words(example['question'], seq_words, ellm, mode='adapted')
+                ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, ellm, mode='adapted')
+            except Exception as e:
+                print('in except 1')
+                print("Error in token-level UQ:", e)
+                ses_words = None
+                ses_tokens = None
                 
         else: 
-            #try:
-            ses_words = se_pipe_across_words(example['question'], seq_words, llm)
-            ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, llm)
-            #except: 
-            #    ses_words = None
-            #    ses_tokens = None
+            try:
+                ses_words = se_pipe_across_words(example['question'], seq_words, llm)
+                ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, llm)
+            except Exception as e:
+                print('in except 1')
+                print("Error in token-level UQ:", e)
+                ses_words = None
+                ses_tokens = None
         
         try:
             pkes_token_emb, pkes_token_sum, pkes_token_word, pkes_token_deltas, pkes_token_token, vnes_token_emb, vnes_token_deltas, vnes_token_token = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
-        except:
+        except Exception as e:
+            print('in except 2')
+            print("Error in token-level UQ:", e)
             pkes_token_emb, pkes_token_sum, pkes_token_word, pkes_token_deltas, pkes_token_token, vnes_token_emb, vnes_token_deltas, vnes_token_token = None, None, None, None, None, None, None, None 
         
         try:
-            pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad  = uq_pipe_across_words(element, emb_model=emb_model, tokenizer=llm.tokenizer, consider_types=consider_types)
-        except:
+            pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad  = uq_pipe_across_words(seq_words, emb_model=emb_model, consider_types=consider_types)
+        except Exception as e:
+            print('in except 3')
+            print("Error in token-level UQ:", e)
             pkes_word_emb, pkes_word_deltas, pkes_word_grad, vnes_word_emb, vnes_word_deltas, vnes_word_grad = None, None, None, None, None, None
         
         #{'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'pkes': pkes, 'true_answer' : example['answer']}#['aliases']}

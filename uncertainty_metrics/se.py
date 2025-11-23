@@ -110,46 +110,121 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
     #         print('alternative_sequence_decoded ', decoded_seqs)
     #         cluster_ids = get_semantic_ids(strings_list=decoded_seqs, model = ellm, example=question, mode=mode)
     #     cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
+    print('Sequence Length : ', len(seq_tokens))
     
     for s, step in enumerate(seq_tokens): 
-        print('s----------------------', s)
         decoded_seqs = step.get('alternative_sequence_decoded', None) 
         set_step = set(tuple(sublist) for sublist in decoded_seqs)
-        print(decoded_seqs)
+        print('s----------------------', s, len(decoded_seqs))
         if len(set_step) == 1: 
             cluster_ids = [0] * len(decoded_seqs)
-        else:     
-            indices = []   
+        else:  
+            # print(decoded_seqs)   
+            # indices = []   
+            # batched_pairs = [] 
+            # batched_paris_dict = []
+            # equiv_pairs = []
+            # for i, string1 in enumerate(decoded_seqs):
+            #     for j in range(i+1, len(decoded_seqs)):
+            #         string2 = decoded_seqs[j]
+            #         if string1 == string2 or string1 in string2 or string2 in string1:
+            #             continue
+            #         if (string1, string2) in batched_pairs or (string2, string1) in batched_pairs:
+            #             for entry in batched_paris_dict:
+            #                 if entry['s1'] == string1 and entry['s2'] == string2 or entry['s1'] == string2 and entry['s2'] == string1:
+            #                     idx_scores = entry['idx_scores']
+            #                     break
+            #         else: 
+            #             indices.append((i,j))
+            #             batched_pairs.append((string1, string2))
+            #             idx_scores = len(batched_pairs)-1
+                        
+            #         batched_paris_dict.append({'s1': string1, 's2': string2, 'i': i, 'j': j, 'idx_scores':idx_scores})
+                
+            #         print(string1)
+            #         print(string2)
+                    
+            # all_scores = []
+            # print('Number of unique pairs ', len(batched_pairs))
+            # print('Number of different pairs ', len(batched_paris_dict))
+            # for b in range(0, len(batched_pairs), MAX_BATCH):
+            #     sub = batched_pairs[b:b+MAX_BATCH]
+            #     scores = ellm.check_implication_batch(sub, question, mode)
+            #     all_scores.extend(scores)
+            
+            # print('Number of scores ', len(all_scores))
+            # score_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), np.nan)
+
+            # for idx, score in enumerate(all_scores):
+            #     i = indices[idx][0]
+            #     j = indices[idx][1]
+            #     score_matrix[i, j] = score
+            #     score_matrix[j, i] = score
+                
+            # for idx, pair in enumerate(batched_paris_dict):
+            #     i = pair['i']
+            #     j = pair['j']
+            #     score_matrix[i, j] = all_scores[pair['idx_scores']]
+            #     score_matrix[j, i] = all_scores[pair['idx_scores']]
+
+            # print(score_matrix)
+            # entailment_score = 1 if mode == 'data' else 2 
+            
+            # score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)    
+            print(decoded_seqs)   
             batched_pairs = [] 
+            pair_to_idx = {}  # Map (string1, string2) -> index in batched_pairs
+            pair_mappings = []  # List of (i, j, score_idx) for matrix population
+            
             for i, string1 in enumerate(decoded_seqs):
                 for j in range(i+1, len(decoded_seqs)):
                     string2 = decoded_seqs[j]
-                    if string1 == string2: 
-                        continue
-                    indices.append((i,j))
-                    batched_pairs.append((string1, string2))
                     
+                    # Skip identical or substring pairs
+                    if string1 == string2 or string1 in string2 or string2 in string1:
+                        continue
+                    
+                    # Check if we've already seen this pair
+                    pair_key = (string1, string2)
+                    reverse_pair_key = (string2, string1)
+                    
+                    if pair_key in pair_to_idx:
+                        score_idx = pair_to_idx[pair_key]
+                    elif reverse_pair_key in pair_to_idx:
+                        score_idx = pair_to_idx[reverse_pair_key]
+                    else:
+                        # New unique pair
+                        score_idx = len(batched_pairs)
+                        batched_pairs.append((string1, string2))
+                        pair_to_idx[pair_key] = score_idx
+                    
+                    pair_mappings.append((i, j, score_idx))
+                    print(string1)
+                    print(string2)
+            
+            # Get scores for unique pairs only
             all_scores = []
-            print('checking implcations')
+            print('Number of unique pairs:', len(batched_pairs))
+            print('Number of total pairs:', len(pair_mappings))
+            
             for b in range(0, len(batched_pairs), MAX_BATCH):
                 sub = batched_pairs[b:b+MAX_BATCH]
-                scores= ellm.check_implication_batch(sub, question, mode)
+                scores = ellm.check_implication_batch(sub, question, mode)
                 all_scores.extend(scores)
             
-            print('implcations checked')
+            # Populate score matrix
+            print('Number of scores:', len(all_scores), scores)
             score_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), np.nan)
-
-            for idx, score in enumerate(all_scores):
-                i = indices[idx][0]
-                j = indices[idx][1]
+            
+            for i, j, score_idx in pair_mappings:
+                score = all_scores[score_idx]
                 score_matrix[i, j] = score
                 score_matrix[j, i] = score
-
             
             entailment_score = 1 if mode == 'data' else 2 
+            score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)
+            # print(score_matrix)       
             
-            score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)    
-            print(score_matrix)       
             cluster_ids = [-1] * len(decoded_seqs)
             next_id = 0
             for i, string1 in enumerate(decoded_seqs):
@@ -168,7 +243,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             assert -1 not in cluster_ids
         
         cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
-        assert len(cluster_ids_across_steps) == len(seq_tokens)
+        assert len(cluster_ids) == len(decoded_seqs)
     
     return cluster_ids_across_steps
             

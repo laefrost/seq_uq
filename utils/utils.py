@@ -35,7 +35,7 @@ def get_parser():
         "--model_id", type=str, default="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ", help="Model ID",
     )
     parser.add_argument(
-        "--emb_model_id", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID", choices=['all-MiniLM-L6-v2', 'intfloat/e5-large-v2']
+        "--emb_model_id", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID", choices=['all-MiniLM-L6-v2', 'intfloat/e5-large-v2', 'models_peft/all-MiniLM-L6-v2-peft/final']
     )
     parser.add_argument(
         "--eval_model_id", type=str, default="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ", help="Model ID of evaluation model",
