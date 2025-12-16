@@ -51,7 +51,7 @@ def main(args):
         
         prompt = construct_prompt(example['question'], task_type=task_type)
         
-        generated_text, sampled_tokens, gen_ids = llm.generate_with_topk(prompt=prompt, k = k)
+        generated_text, sampled_tokens, gen_ids = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.9)
         current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
         
         generations.append({
@@ -85,7 +85,7 @@ def main(args):
         sampled_tokens = element['sampled_tokens']
                             
         for s, step in enumerate(seq_tokens): 
-            decoded_seqs = step.get('s_decoded', None) 
+            decoded_seqs = step.get('alternative_sequence_decoded', None) 
             decoded_seqs = list(set(decoded_seqs))
             
             if len(decoded_seqs) == 1: 

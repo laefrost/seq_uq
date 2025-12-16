@@ -84,7 +84,7 @@ def get_parser():
 
 def construct_prompt(question, task_type = 'qa'):
     if task_type == 'qa': 
-        return f"You are a helpful assistant. Answer the following question in ONE short sentence. {question}" 
+        return f"You are a helpful assistant. Answer the following question in one short sentence (max. 100 tokens). {question}" 
     elif task_type == 'bio': 
         return f"You are a helpful assistant. {question}" 
     

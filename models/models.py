@@ -29,18 +29,18 @@ class LLM():
             
             if 'oss' in model_id.lower(): 
                 self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-                # self.model = AutoModelForCausalLM.from_pretrained(
-                #     "openai/gpt-oss-20b",
-                #     device_map="auto",
-                #     torch_dtype=torch.float16,
-                # )
                 self.model = AutoModelForCausalLM.from_pretrained(
-                    'unsloth/gpt-oss-20b-bnb-4bit',
+                    "openai/gpt-oss-20b",
                     device_map="auto",
-                    load_in_4bit=True,
                     torch_dtype="auto",
-                    trust_remote_code=True
                 )
+                # self.model = AutoModelForCausalLM.from_pretrained(
+                #     'unsloth/gpt-oss-20b-bnb-4bit',
+                #     device_map="auto",
+                #     load_in_4bit=True,
+                #     torch_dtype="auto",
+                #     trust_remote_code=True
+                # )
                 
                 
             self.pipe = pipeline(
@@ -90,7 +90,7 @@ class LLM():
                     return_dict_in_generate=True,
                     output_scores=True,  
                     pad_token_id=self.tokenizer.pad_token_id,
-                    max_new_tokens=500,
+                    max_new_tokens=5000,
                 )
 
             # Get prompt length
@@ -145,7 +145,7 @@ class LLM():
             prompt += "Here are two possible partly evolved subsequences: \n"
             prompt += f"Possible Answer 1: {text1}\nPossible Answer 2: {text2}\n"
             prompt += "Does Possible Answer 1 semantically entail Possible Answer 2? Respond with entailment, contradiction, or neutral."""
-        elif mode == 'data': 
+        else: 
             # prompt = f"""We are evaluating partly evolved subsequences. 
             # Will subsequence 1 semantically lead to a completley different meaning to the question than subsequence 2? Completley different means that, regradless of what tokens are added in the future, both subsequences already contradict each other at this state..
             # Will subsequence 1 semantically lead to the same meaning to the question as subsequence 2? The same means that the most important aspects about the answer are already within the subsequences and regradless of what tokens are added in the future, this meaning will not change.
@@ -180,76 +180,99 @@ class LLM():
             # FINAL ANSWER (one word only):
             # """
             
-            prompt = f"""Task: Compare two partial text subsequences and determine their semantic relationship based on their final token.
+            prompt = f"""Task: Compare two partial text subsequences and determine their semantic relationship based on their final token.\n
 
-            DEFINITIONS:
+            DEFINITIONS:\n
             - "contradiction": The subsequences will inevitably lead to different meanings, regardless of future tokens. The last tokens make them mutually exclusive.
             - "entailment": The subsequences will lead to the same meaning, regardless of future tokens. The last tokens are semantically equivalent (e.g., synonyms).
             - "neutral": Cannot determine yet whether they'll diverge or converge. The last token doesn't provide enough information, or future tokens could make them equivalent despite current differences.
 
-            CLASSIFICATION RULES:
-            1. Focus on how the last token relates the subsequences
-            2. Stylistic or ordering differences alone: "neutral"
-            3. Empty last tokens, spaces, or punctuation marks as one or both last tokens: "neutral"
-            4. If the tokens refer to different topics: "neutral"
-            5. Synonyms, singular/plural versions or semantically identical terms (e.g. The vs. A, pretty vs. beautiful): "entailment"
-            6. Different factual content (names, numbers, entities): "contradiction"
+            EXAMPLES:\n
 
-            EXAMPLES:
+            Question: Who was the lead singer of Nirvana?\n
+            Subsequence 1: The lead singer was Kurt\n
+            Subsequence 2: The lead singer was Tom\n
+            Answer: contradiction 
+            (Different names = different factual claims)\n
 
-            Question: Who was the lead singer of Nirvana?
-            Subsequence 1: The lead singer was Kurt
-            Subsequence 2: The lead singer was Tom
-            Answer: contradiction
-            (Different names = different factual claims)
+            Question: Who was the lead singer of Nirvana?\n
+            Subsequence 1: The\n
+            Subsequence 2: Kurt\n
+            Answer: neutral 
+            (Too early; "The" could lead to "The lead singer Kurt...")\n
 
-            Question: Who was the lead singer of Nirvana?
-            Subsequence 1: The
-            Subsequence 2: Kurt
+            Question: What color is the sky?\n
+            Subsequence 1: The sky is\n
+            Subsequence 2: The sky appears\n
             Answer: neutral
-            (Too early; "The" could lead to "The lead singer Kurt...")
-
-            Question: What color is the sky?
-            Subsequence 1: The sky is
-            Subsequence 2: The sky appears
-            Answer: neutral
-            ("is" vs "appears" is stylistic, not semantic)
+            ("is" vs "appears" is stylistic, not semantic)\n
             
-            Question: When did Madonna graduate?
-            Subsequence 1: Madonna graduated in New York 
-            Subsequence 2: Madonna graduated in painting
+            Question: What is the titel of J.R.R. Tolkien's most famous series? \n
+            Subsequence 1: The title is "\n
+            Subsequence 2: The title is Lord\n
             Answer: neutral
-            ("New York" vs "painting" are differnt claim topics, that do not necessarily contradict each other)
+            (Can still lead to the same title, " is just a stlistic choice for displaying a title)\n
+            
+            Question: When did Madonna graduate?\n
+            Subsequence 1: Madonna graduated in New York\n
+            Subsequence 2: Madonna graduated in painting\n
+            Answer: neutral
+            ("New York" vs "painting" are differnt topics, that do not necessarily contradict each other)\n
 
-            NOW ANALYZE:
-            Question: {question}
-            Subsequence 1: {text1}
-            Subsequence 2: {text2}
-
-            OUTPUT INSTRUCTIONS:
-            - Respond with EXACTLY ONE WORD: contradiction, neutral, or entailment
-            - No explanations, reasoning, or additional text
-            - If uncertain, choose: neutral
-
+            NOW ANALYZE:\n
+            Question: {question}\n
+            Subsequence 1: {text1}\n
+            Subsequence 2: {text2}\n
             Answer:"""
-        elif mode == 'adapted': 
-           prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
-            Sequence 1: {text1}\nSequence 2: {text2}\n
-            Will Sequence 1 semantically lead to a completley different meaning to the question than Sequence 2? Completley different means that there is no way that both sequences can have the same semantic meaning when more tokens are added in the future.
-            Respond with False if the sequences will surely lead to different answers and with True if not.
+        # elif mode == 'adapted': 
+        #    prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
+        #     Sequence 1: {text1}\nSequence 2: {text2}\n
+        #     Will Sequence 1 semantically lead to a completley different meaning to the question than Sequence 2? 
+        #     Completley different means that there is no way that both sequences can have the same semantic meaning when more tokens are added in the future.
+        #     Respond with False if the sequences will surely lead to different answers and with True if not.
             
-            Example 1: \n
-            Question: Who was the lead singer of Nirvana? \n
-            Possible Answer 1: The lead singer was Kurt \n
-            Possible Answer 2: The lead singer was Tom  \n
-            Response: False
+        #     Example 1: \n
+        #     Question: Who was the lead singer of Nirvana? \n
+        #     Possible Answer 1: The lead singer was Kurt \n
+        #     Possible Answer 2: The lead singer was Tom  \n
+        #     Response: False
             
-            Example 1: \n
-            Question: Who was the lead singer of Nirvana? \n
-            Possible Answer 1: The lead singer was Kurt \n
-            Possible Answer 2: The lead singer was the \n
-            Response: True
-            """
+        #     Example 1: \n
+        #     Question: Who was the lead singer of Nirvana? \n
+        #     Possible Answer 1: The lead singer was Kurt \n
+        #     Possible Answer 2: The lead singer was the \n
+        #     Response: True
+        #     """
+            # prompt = f"""Task: Determine if two partial text subsequences will inevitably contradict each other based on their content so far.
+
+            #     DEFINITIONS:
+            #     - "contradiction": The subsequences have already diverged into mutually exclusive meanings that cannot be reconciled by future tokens (e.g., different factual claims about the same aspect)
+            #     - "neutral": The subsequences either could still converge to the same meaning, address different aspects that don't contradict, or differ only stylistically
+
+            #     EXAMPLES:
+            #     Question: Who was the lead singer of Nirvana?
+            #     Subsequence 1: The lead singer was Kurt
+            #     Subsequence 2: The lead singer was Tom
+            #     Answer: contradiction
+            #     Reason: Different names for the same role = incompatible factual claims
+
+            #     Question: Who was the lead singer of Nirvana?
+            #     Subsequence 1: The
+            #     Subsequence 2: Kurt
+            #     Answer: neutral
+            #     Reason: "The" could continue as "The lead singer Kurt..." - too early to determine
+
+            #     NOW ANALYZE:
+            #     Question: {question}
+            #     Subsequence 1: {text1}
+            #     Subsequence 2: {text2}
+
+            #     OUTPUT INSTRUCTIONS:
+            #     - Default to "neutral" when uncertain
+            #     - Only compare the two sequences, do not try to answer the question they refer to!
+            #     - Respond with EXACTLY ONE WORD: "contradiction" or "neutral"
+
+            #     Answer:"""
              
         return prompt
             
@@ -319,7 +342,7 @@ class LLM():
         
         outputs = self.pipe(
             batched_chats,
-            max_new_tokens=250,
+            max_new_tokens=5000,
             do_sample=False,
             pad_token_id=self.tokenizer.eos_token_id,
             return_full_text = False,
@@ -329,15 +352,18 @@ class LLM():
         def extract_label(text, mode):
             if mode == "data": 
                 matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
-            else: 
-                matches = re.findall(r'\b(true|false)\b', text, flags=re.IGNORECASE)
+            elif mode == "adapted": 
+                # matches = re.findall(r'\b(neutral|contradiction)\b', text, flags=re.IGNORECASE)
+                matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
             if not matches:
                 return None
             return matches[-1].lower()
         
         scores = []
+        print('outputs ',outputs)
         for i, out in enumerate(outputs):
             full = out[0]["generated_text"]
+            print()
             label = extract_label(full, mode)
             
             if mode == 'data':
@@ -356,9 +382,10 @@ class LLM():
                 value = mapping.get(label, -1)
             elif mode == 'adapted': 
                 mapping = {
-                    "false": 0,
-                    "true": 2}                
-                value = mapping.get(label, -1)
+                    "contradiction": 0,
+                    "neutral": 1,
+                    "entailment": 2}                
+                value = mapping.get(label, 1)
             
             scores.append(value)
         return scores

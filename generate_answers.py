@@ -56,7 +56,7 @@ def main(args):
         
         prompt = construct_prompt(example['question'], task_type=task_type)
         
-        generated_text, sampled_tokens, gen_ids = llm.generate_with_topk(prompt=prompt, k = k)
+        generated_text, sampled_tokens, gen_ids = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.1)
         current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
                 
         if task_type == 'qa':

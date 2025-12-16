@@ -153,7 +153,7 @@ def main():
         model_name = 'sentence-transformers/all-MiniLM-L6-v2'
         train_path = 'finetuning/train.xlsx'
         val_path = 'finetuning/val.xlsx'
-        num_epochs = 10  # Changed from 500 to a more reasonable value
+        num_epochs = 150  # Changed from 500 to a more reasonable value
         batch_size = 32
         use_lora = True
         
@@ -203,8 +203,8 @@ def main():
         # Final evaluation
         logger.info("Evaluating trained model")
         final_score = dev_evaluator(model)
+        logger.info(f"Base model score: {base_score}")
         logger.info(f"Final model score: {final_score}")
-        logger.info(f"Improvement: {final_score - base_score:.4f}")
         
         # Save model
         final_output_dir = f"models_peft/{run_name}/final"

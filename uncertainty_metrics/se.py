@@ -204,8 +204,6 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             
             # Get scores for unique pairs only
             all_scores = []
-            print('Number of unique pairs:', len(batched_pairs))
-            print('Number of total pairs:', len(pair_mappings))
             
             for b in range(0, len(batched_pairs), MAX_BATCH):
                 sub = batched_pairs[b:b+MAX_BATCH]
@@ -236,11 +234,14 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                         # Search through all remaining strings. If they are equivalent to string1, assign them the same id.
                         # if are_equivalent(string1, strings_list[j]):
                         #    semantic_set_ids[j] = next_id
-                        if score_matrix[i, j] == entailment_score:
+                        # if score_matrix[i, j] == entailment_score:
+                        if score_matrix[i, j] in [1, 2]:
                             cluster_ids[j] = next_id
                     next_id += 1
 
             assert -1 not in cluster_ids
+            
+            print('cluster ids: ',cluster_ids)
         
         cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
         assert len(cluster_ids) == len(decoded_seqs)
