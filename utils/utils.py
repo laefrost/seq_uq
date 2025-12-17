@@ -124,7 +124,7 @@ def model_based_metric(predicted_answer, example, model):
     # predicted_answer = None
     # while predicted_answer == None: 
     #    print('while')
-    predicted_answer = model.predict(prompt, temperature = 1.0)
+    predicted_answer = model.predict(prompt, temperature = 0.01)
     
     print(predicted_answer)
 

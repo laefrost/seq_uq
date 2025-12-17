@@ -5,13 +5,22 @@ import numpy as np
 from huggingface_hub import InferenceClient
 import os, gc
 import re
+import instructor
+from openai import OpenAI
+from pydantic import BaseModel
+
+load_dotenv()
+
 
 class LLM(): 
     def __init__(self, storage_type = 'local', model_id = 'openai/gpt-oss-20b'): 
         self.storage_type = storage_type
         if storage_type == 'hf_inference': 
-            self.client = InferenceClient(model=model_id, token="")
+            self.client = InferenceClient(model=model_id, api_key=os.getenv('HF_TOKEN'))
             # self.client = InferenceClient(token="")
+        elif storage_type == 'open_ai_api': 
+            self.client = instructor.from_openai(OpenAI())
+            self.model_id = model_id
         else: 
             if 'mistral' in model_id.lower():
                 self.tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -51,18 +60,26 @@ class LLM():
                 torch_dtype=torch.float16,
             )
     
-    def predict(self, prompt, temperature = 0.9, return_all = False): 
+    def predict(self, prompt, temperature = 0.9, return_all = False, response_model = None): 
         if self.storage_type == 'hf_inference': 
             message = [{"role": "user", "content": prompt}]
-            
-            
             out = self.client.chat_completion(
                 messages = message,
                 temperature=temperature,        
-                top_p=0.9,                 
+                top_p=0.9,
+                response_model = response_model                 
             )
-
             return out.choices[0].message["content"]
+        
+        elif self.storage_type == "open_ai_api":
+            message = [{"role": "user", "content": prompt}]
+            result = self.client.chat.completions.create(
+                model=self.model_id,
+                response_model = response_model,
+                messages=messages
+                )
+            return result  
+        
         else: 
             chat = [
                 {"role": "user", "content": prompt}
@@ -136,9 +153,51 @@ class LLM():
                                  'current_prob' : current_probs, 
                                  'sampled_tokens' : sampled})
 
+        # gen_ids_decoded = []
+        # for id in gen_ids:
+        #    gen_ids_decoded.append(self.tokenizer.decode(id, skip_special_tokens=True)) 
+        gen_ids_decoded = self.tokenizer.convert_ids_to_tokens(gen_ids)
+        
         generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=False)
-        return generated_text, step_samples, gen_ids
+        return generated_text, step_samples, gen_ids, gen_ids_decoded
     
+    # ------------------ methods for factual eval
+    def position_eval_prompt(question, answer_false, answer_true, token_list):
+        prompt = prompt = f"""Analyze token-level contributions to factual incorrectness.
+            Question: {question}
+            True answer: {answer_true}
+            False Answer: {answer_false}
+            Tokens: {tokens}
+
+            For EACH token in tokens, determine if it directly contributed to making the answer false:
+
+            "yes" = This token is factually wrong or creates the error
+            - Incorrect entity names, numbers, dates, relationships
+            - Negations that make true statements false
+            - Wrong verbs/adjectives that change meaning
+
+            "no" = This token is correct or neutral
+            - Grammatical words (the, is, of, etc.)
+            - Correctly used contextual words
+            - Tokens that would be correct in a true answer
+
+            Return a mapping for every single token."""
+        
+        return prompt
+    
+    def check_positions(self, question, answer_false, answer_true, token_list)
+        class TokenMapping(BaseModel):
+            mappings: dict[str, str]
+        
+        response_model = TokenMapping
+        
+        prompt = self.position_eval_prompt(question, answer_false, answer_true, token_list)
+        result = self.predict(prompt = prompt, temperature = 0.1, response_model = response_model)
+        
+        assert len(result.mappings) = len(token_list)
+        return result.mappings
+    
+    # ------------------- methods for NLI
     def equivalence_prompt(self, text1, text2, question, mode = 'og'):
         if mode == 'og': 
             prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n"""
