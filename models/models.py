@@ -7,7 +7,8 @@ import os, gc
 import re
 import instructor
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -67,8 +68,8 @@ class LLM():
                 messages = message,
                 temperature=temperature,        
                 top_p=0.9,
-                response_model = response_model                 
-            )
+                response_format = response_model
+                )
             return out.choices[0].message["content"]
         
         elif self.storage_type == "open_ai_api":
@@ -76,7 +77,7 @@ class LLM():
             result = self.client.chat.completions.create(
                 model=self.model_id,
                 response_model = response_model,
-                messages=messages
+                messages=message
                 )
             return result  
         
@@ -105,7 +106,8 @@ class LLM():
                     temperature=temperature,
                     top_p=0.9,
                     return_dict_in_generate=True,
-                    output_scores=True,  
+                    output_scores=True, 
+                    output_logits=True, 
                     pad_token_id=self.tokenizer.pad_token_id,
                     max_new_tokens=5000,
                 )
@@ -128,7 +130,7 @@ class LLM():
         generated_text, gen_ids, out = self.predict(prompt=prompt, temperature=temperature, return_all=True)
         #print('generated text: ', generated_text)
         step_samples = []
-        for step_idx, step_scores in enumerate(out.scores):
+        for step_idx, step_scores in enumerate(out.logits):
             # print('gen_id: ', gen_ids[step_idx])
             logits = step_scores[0]                  
             probs = torch.softmax(logits, dim=-1)     
@@ -162,12 +164,12 @@ class LLM():
         return generated_text, step_samples, gen_ids, gen_ids_decoded
     
     # ------------------ methods for factual eval
-    def position_eval_prompt(question, answer_false, answer_true, token_list):
+    def position_eval_prompt(self, question, answer_false, answer_true, token_list):
         prompt = prompt = f"""Analyze token-level contributions to factual incorrectness.
             Question: {question}
             True answer: {answer_true}
             False Answer: {answer_false}
-            Tokens: {tokens}
+            Tokens: {token_list}
 
             For EACH token in tokens, determine if it directly contributed to making the answer false:
 
@@ -181,21 +183,43 @@ class LLM():
             - Correctly used contextual words
             - Tokens that would be correct in a true answer
 
-            Return a mapping for every single token."""
-        
+            You MUST respond with ONLY this exact JSON structure:
+            {{"mappings": [
+                {{"token": "The", 
+                "value": "no"}},
+                {{"token": "capital", 
+                "value": "no"}},
+                {{"token": "of", 
+                "value": "no"}},
+                {{"token": "France", 
+                "value": "no"}},
+                {{"token": "is", 
+                "value": "no"}},
+                {{"token": "London", 
+                "value": "yes"}}]}}
+            Do not include any explanation, markdown, or other text. Only return the JSON object above."""        
         return prompt
     
-    def check_positions(self, question, answer_false, answer_true, token_list)
-        class TokenMapping(BaseModel):
-            mappings: dict[str, str]
+    def check_positions(self, question, answer_false, answer_true, token_list):
+        # class TokenMapping(BaseModel):
+        #     mappings: dict[str, str] = Field(default_factory=dict)
         
-        response_model = TokenMapping
+        # response_model = TokenMapping()
+        response_format = {
+            "type": "json_schema",
+            "value" : {
+                "properties": {
+                    "mappings": { "type": "array", "items" : {"type" : "json_schema", "value" : {"properties" : {"token" : {"type" : "string"}, "value": {"type" : "string"}}}}}
+                    }
+                },
+            "required": ["mappings"]
+            }
         
         prompt = self.position_eval_prompt(question, answer_false, answer_true, token_list)
-        result = self.predict(prompt = prompt, temperature = 0.1, response_model = response_model)
+        result = self.predict(prompt = prompt, temperature = 0.1, response_model = response_format)
         
-        assert len(result.mappings) = len(token_list)
-        return result.mappings
+        # assert len(result.mappings) == len(token_list)
+        return result
     
     # ------------------- methods for NLI
     def equivalence_prompt(self, text1, text2, question, mode = 'og'):

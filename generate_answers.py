@@ -35,7 +35,7 @@ def main(args):
     llm = LLM(model_id=model_id)
     
     if model_id != eval_model_id:
-        llm_eval = LLM(model_id=eval_model_id)
+        llm_eval = LLM(model_id=eval_model_id, storage_type='hf_inference')
 
     logging.info('Model init')
 
@@ -58,18 +58,30 @@ def main(args):
         
         generated_text, sampled_tokens, gen_ids, gen_tokens = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.1)
         current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
-                
+
+        pattern = r"\(|\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|</s>|'|\"|`|´|-"
+        gen_words = re.findall(pattern, generated_text)
+            
         if task_type == 'qa':
             if model_id != model_id: 
                 acc = metric(generated_text, example, llm_eval)
             else: 
                 acc = metric(generated_text, example, llm)
-                
-            if acc == 1:
-                acc_positions = llm_eval.check_positions(question, answer_false, answer_true, token_list)
-            else: acc_positions = ["no"] * len(token_list)
+            print(example['question'], generated_text, example['answer'])    
+            if acc == 0:
+                logging.info('wrong answer: ')
+                acc_tokens = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_tokens)
+                acc_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_tokens)
+
+                print(acc_words)
+                print(acc_tokens)
+            else: 
+                acc_tokens = ["no"] * len(gen_tokens)
+                acc_words = ["no"] * len(gen_words)
         else:
             acc = None
+            acc_positions = None
+            acc_tokens = None
         
         generations.append({
             'example' : example,
@@ -78,7 +90,9 @@ def main(args):
             'sampled_tokens' : sampled_tokens, 
             'gen_ids' : gen_ids, 
             'seq_tokens' : seq_tokens, 
-            'current_probs' : current_probs}
+            'current_probs' : current_probs, 
+            'acc_tokens' : acc_tokens,
+            'acc_words' : acc_words}
         )
 
         # accuracy = np.mean(accuracies)

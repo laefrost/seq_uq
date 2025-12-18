@@ -422,7 +422,9 @@ def main(args):
                     'vnes_token_token' : vnes_token_token, 
                     'true_answer' : example['answer'], 
                     'sampled_tokens' : sampled_tokens,
-                    'acc' : element['acc']})
+                    'acc' : element['acc'],
+                    'acc_tokens' : element['acc_tokens'],
+                    'acc_words' : element['acc_words']})
     
     if model_id != ellm_model_id:
         del ellm
