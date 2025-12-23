@@ -13,10 +13,10 @@ def load_ds(dataset_name, seed, add_options=None, num_samples = 5):
 
     elif dataset_name == 'factual_bio':
         sampled_examples = [
-            {'question' : 'Who is John Russel Reynolds?', 'answer' : None}, 
-            {'question' : 'Who is Adja Yunkers?', 'answer' : None},
-            {'question' : 'Who is Bert Deacon?', 'answer' : None},
-            {'question' : "Who is Freddie Frith?", 'answer' : None}, 
+            {'question' : 'Who is John Russel Reynolds?', 'answer' : None, 'topic': 'John Russel Reynolds'}, 
+            {'question' : 'Who is Adja Yunkers?', 'answer' : None, 'topic': 'Adja Yunkers'},
+            {'question' : 'Who is Bert Deacon?', 'answer' : None, 'topic': 'Bert Deacon'},
+            {'question' : "Who is Freddie Frith?", 'answer' : None, 'topic': 'Freddie Frith'}, 
             # {'question' : 'Who is Wilhelm Windelband?'},
             # {'question' : "Who is Moisés Kaufman?"},
             # {'question' : 'Who is Laurent Koscielny?'},
@@ -24,7 +24,6 @@ def load_ds(dataset_name, seed, add_options=None, num_samples = 5):
             # {'question' : 'Who is Leana de Bruin?'},
             # {'question' : 'Who is Tera Van Beilen?}'}
         ]
-    
     return sampled_examples
    
     

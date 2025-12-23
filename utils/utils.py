@@ -45,6 +45,12 @@ def get_parser():
     )
     
     parser.add_argument(
+        "--fact_model_name", type=str, default="hf-inf", help="Model name of fact score model", choices=["retrieval+llama", "retrieval+llama+npm", "retrieval+ChatGPT", "npm", 
+                              "retrieval+ChatGPT+npm", "ChatGPT", "gpt-oss", "retrieval+gpt-oss-20b", 
+                              "hf-inf", "retrieval+hf-inf"],
+    )
+    
+    parser.add_argument(
         "--consider_types", default=False,
         action=argparse.BooleanOptionalAction,
         help='Mask word types during UQ'
@@ -75,10 +81,19 @@ def get_parser():
     
     parser.add_argument(
         "--task_type", default='qa', type=str)
+    
+    parser.add_argument(
+        "--eval_type", default='fact_score', type=str)
+    
     parser.add_argument(
         "--compute_uncertainties", default=False,
         action=argparse.BooleanOptionalAction,
         help='Trigger compute_uncertainty_measures.py')
+    
+    parser.add_argument(
+        "--eval_answers", default=False,
+        action=argparse.BooleanOptionalAction,
+        help='Trigger eval_answers.py')
     return parser
 
 

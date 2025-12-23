@@ -5,7 +5,7 @@ import numpy as np
 from huggingface_hub import InferenceClient
 import os, gc
 import re
-import instructor
+# import instructor
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -20,7 +20,7 @@ class LLM():
             self.client = InferenceClient(model=model_id, api_key=os.getenv('HF_TOKEN'))
             # self.client = InferenceClient(token="")
         elif storage_type == 'open_ai_api': 
-            self.client = instructor.from_openai(OpenAI())
+            self.client = OpenAI()
             self.model_id = model_id
         else: 
             if 'mistral' in model_id.lower():
@@ -76,8 +76,9 @@ class LLM():
             message = [{"role": "user", "content": prompt}]
             result = self.client.chat.completions.create(
                 model=self.model_id,
-                response_model = response_model,
-                messages=message
+                response_format = response_model,
+                messages=message, 
+                temperature=temperature
                 )
             return result  
         
@@ -413,24 +414,42 @@ class LLM():
             [{"role": "user", "content": prompt}] for prompt in prompts            
         ]
         
-        # Apply the template to each batch element
-        batched_chats = [
-            self.tokenizer.apply_chat_template(
-                chat,
-                add_generation_prompt=True,
-                tokenize=False
-            )
-            for chat in chats
-        ]
         
-        outputs = self.pipe(
-            batched_chats,
-            max_new_tokens=5000,
-            do_sample=False,
-            pad_token_id=self.tokenizer.eos_token_id,
-            return_full_text = False,
-            clean_up_tokenization_spaces = True
-        )
+        if self.storage_type == 'local':
+            # Apply the template to each batch element
+            batched_chats = [
+                self.tokenizer.apply_chat_template(
+                    chat,
+                    add_generation_prompt=True,
+                    tokenize=False
+                )
+                for chat in chats
+            ]
+            
+            outputs = self.pipe(
+                batched_chats,
+                max_new_tokens=5000,
+                do_sample=False,
+                pad_token_id=self.tokenizer.eos_token_id,
+                return_full_text = False,
+                clean_up_tokenization_spaces = True
+            )
+        elif self.storage_type == "open_ai_api": 
+            chats = [
+                [{"role": "user", "content": prompt}] for prompt in prompts            
+            ]
+
+            # Process each chat (OpenAI API doesn't support batching in a single call)
+            outputs = []
+            for chat in chats:
+                response = self.client.chat.completions.create(
+                    model=self.model_id,  # or "gpt-3.5-turbo", "gpt-4-turbo", etc.
+                    messages=chat,
+                    max_tokens=5000,
+                    temperature=0,  # equivalent to do_sample=False
+                )
+                outputs.append(response.choices[0].message.content)
+            
         
         def extract_label(text, mode):
             if mode == "data": 
@@ -443,12 +462,12 @@ class LLM():
             return matches[-1].lower()
         
         scores = []
-        print('outputs ',outputs)
         for i, out in enumerate(outputs):
-            full = out[0]["generated_text"]
-            print()
+            if self.storage_type == 'local':
+                full = out[0]["generated_text"]
+            elif self.storage_type == 'open_ai_api': 
+                full = out
             label = extract_label(full, mode)
-            
             if mode == 'data':
                 mapping = {
                     "contradiction": -1,

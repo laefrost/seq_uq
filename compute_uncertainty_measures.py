@@ -351,9 +351,10 @@ def main(args):
     
     uqs = []    
     # Initialize model
+    # TODO: Maybe use OpenAI or other models to create NLI call
     llm = LLM(model_id=model_id)
     if model_id != ellm_model_id: 
-        ellm = LLM(model_id=ellm_model_id)
+       ellm = LLM(model_id=ellm_model_id)
     emb_model = SentenceTransformer(emb_model_id) #SentenceTransformer("all-MiniLM-L6-v2")
     tokenizer_emb = emb_model.tokenizer# AutoTokenizer.from_pretrained("sentence-transformers/" + emb_model_id)
     
@@ -366,25 +367,25 @@ def main(args):
         seq_words = generate_word_subsequences(seq_tokens, element['generated_text'], example['question'], gen_ids, llm.tokenizer)
         print('length words, tokens ',len(seq_tokens), len(seq_words))
         
-        # if model_id != ellm_model_id: 
-        #     try:
-        #         ses_words = se_pipe_across_words(example['question'], seq_words, ellm, mode='adapted')
-        #         ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, ellm, mode='adapted')
-        #     except Exception as e:
-        #         print('in except 1')
-        #         print("Error in token-level UQ:", e)
-        #         ses_words = None
-        #         ses_tokens = None
+        if model_id != ellm_model_id: 
+            try:
+                ses_words = se_pipe_across_words(example['question'], seq_words, ellm, mode='adapted')
+                ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, ellm, mode='adapted')
+            except Exception as e:
+                print('in except 1')
+                print("Error in token-level UQ:", e)
+                ses_words = None
+                ses_tokens = None
                 
-        # else: 
-        #     try:
-        #         ses_words = se_pipe_across_words(example['question'], seq_words, llm)
-        #         ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, llm)
-        #     except Exception as e:
-        #         print('in except 1')
-        #         print("Error in token-level UQ:", e)
-        ses_words = None
-        ses_tokens = None
+        else: 
+            try:
+                ses_words = se_pipe_across_words(example['question'], seq_words, llm)
+                ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, llm)
+            except Exception as e:
+                print('in except 1')
+                print("Error in token-level UQ:", e)
+                ses_words = None
+                ses_tokens = None
         
         try:
             pkes_token_emb, pkes_token_sum, pkes_token_word, pkes_token_deltas, pkes_token_token, vnes_token_emb, vnes_token_deltas, vnes_token_token = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
@@ -422,12 +423,13 @@ def main(args):
                     'vnes_token_token' : vnes_token_token, 
                     'true_answer' : example['answer'], 
                     'sampled_tokens' : sampled_tokens,
-                    'acc' : element['acc'],
-                    'acc_tokens' : element['acc_tokens'],
-                    'acc_words' : element['acc_words']})
+                    #'acc' : element['acc'],
+                    #'acc_tokens' : element['acc_tokens'],
+                    #'acc_words' : element['acc_words']
+                    })
     
-    if model_id != ellm_model_id:
-        del ellm
+    #if model_id != ellm_model_id:
+    #    del ellm
     del llm
     save(uqs, f'{exp_name}_{ds_name}_uqs.pkl')
         

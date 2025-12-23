@@ -11,6 +11,8 @@ from utils.subsequences import generate_subsequences
 from utils.utils import get_parser, construct_prompt, save, get_metric, setup_logger
 from data.utils import load_ds
 from compute_uncertainty_measures import main as compute_uq_main
+from evaluate_answers import main as eval_answers_main
+
 
 
 setup_logger()
@@ -19,7 +21,6 @@ def main(args):
     experiment_details = {'args': args}
     random.seed(args.random_seed)
 
-    metric = get_metric(args.metric)
     samples = load_ds(args.dataset, seed=args.random_seed, num_samples = args.num_samples)
     
     logging.info('Dataset loaded!')
@@ -29,8 +30,7 @@ def main(args):
     exp_name = args.exp_name
     ds_name = args.dataset
     task_type = args.task_type
-    k = args.k
-    
+    k = args.k    
     # Initialize model
     llm = LLM(model_id=model_id)
     
@@ -61,38 +61,43 @@ def main(args):
 
         pattern = r"\(|\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|</s>|'|\"|`|´|-"
         gen_words = re.findall(pattern, generated_text)
+        
+        # TODO: Insert fact score logic: Not really necessary, can also do that afterwards after generation 
+        # get out = factsocrer.py 
+        # iterate through decisions.decision: if false, check which words lead to wrong answer
             
-        if task_type == 'qa':
-            if model_id != model_id: 
-                acc = metric(generated_text, example, llm_eval)
-            else: 
-                acc = metric(generated_text, example, llm)
-            print(example['question'], generated_text, example['answer'])    
-            if acc == 0:
-                logging.info('wrong answer: ')
-                acc_tokens = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_tokens)
-                acc_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_tokens)
+        # if task_type == 'qa':
+        #     if model_id != model_id: 
+        #         acc = metric(generated_text, example, llm_eval)
+        #     else: 
+        #         acc = metric(generated_text, example, llm)
+        #     print(example['question'], generated_text, example['answer'])    
+        #     if acc == 0:
+        #         logging.info('wrong answer: ')
+        #         acc_tokens = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_tokens)
+        #         acc_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_words)
 
-                print(acc_words)
-                print(acc_tokens)
-            else: 
-                acc_tokens = ["no"] * len(gen_tokens)
-                acc_words = ["no"] * len(gen_words)
-        else:
-            acc = None
-            acc_positions = None
-            acc_tokens = None
+        #         print(acc_words)
+        #         print(acc_tokens)
+        #     else: 
+        #         acc_tokens = ["no"] * len(gen_tokens)
+        #         acc_words = ["no"] * len(gen_words)
+        # else:
+        #     acc = None
+        #     acc_positions = None
+        #     acc_tokens = None
         
         generations.append({
             'example' : example,
-            'acc' : acc, 
+            # 'acc' : acc, 
+            'topic' : example.get('topic', None),
             'generated_text' : generated_text, 
             'sampled_tokens' : sampled_tokens, 
             'gen_ids' : gen_ids, 
             'seq_tokens' : seq_tokens, 
             'current_probs' : current_probs, 
-            'acc_tokens' : acc_tokens,
-            'acc_words' : acc_words}
+            'gen_tokens' : gen_tokens,
+            'gen_words' : gen_words}
         )
 
         # accuracy = np.mean(accuracies)
@@ -122,6 +127,14 @@ if __name__ == '__main__':
     logging.info('STARTING `generate_answers`!')
     main(args)
     logging.info('FINISHED `generate_answers`!')
+    
+    if args.eval_answers:
+        gc.collect()
+        torch.cuda.empty_cache()
+        logging.info(50 * '#X')
+        logging.info('STARTING `eval_answers`!')
+        eval_answers_main(args)
+        logging.info('FINISHED `eval_answers`!')
 
     if args.compute_uncertainties:
         # Follow with uncertainty calculation script by default.
