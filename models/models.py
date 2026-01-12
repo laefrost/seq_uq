@@ -53,34 +53,45 @@ class LLM():
                 # )
                 
                 
-            self.pipe = pipeline(
-                "text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer,
-                device_map="auto",
-                torch_dtype=torch.float16,
-            )
+                self.pipe = pipeline(
+                    "text-generation",
+                    model=self.model,
+                    tokenizer=self.tokenizer,
+                    device_map="auto",
+                    torch_dtype=torch.float16,
+                )
     
-    def predict(self, prompt, temperature = 0.9, return_all = False, response_model = None): 
+    def predict(self, prompt, temperature = 0.9, return_all = False, response_format = None): 
         if self.storage_type == 'hf_inference': 
             message = [{"role": "user", "content": prompt}]
             out = self.client.chat_completion(
                 messages = message,
                 temperature=temperature,        
                 top_p=0.9,
-                response_format = response_model
+                response_format = response_format
                 )
             return out.choices[0].message["content"]
         
         elif self.storage_type == "open_ai_api":
             message = [{"role": "user", "content": prompt}]
-            result = self.client.chat.completions.create(
+            
+            # TODO: Insert response api
+            # result = self.client.chat.completions.create(
+            #     model=self.model_id,
+            #     response_format = response_model,
+            #     messages=message, 
+            #     temperature=temperature
+            #     )
+            result = self.client.responses.create(
                 model=self.model_id,
-                response_format = response_model,
-                messages=message, 
+                input= message,
+                text = response_format,
                 temperature=temperature
+                # reasoning={
+                #     "effort": "none"
+                #     }
                 )
-            return result  
+            return result.output_text  
         
         else: 
             chat = [
@@ -165,26 +176,57 @@ class LLM():
         return generated_text, step_samples, gen_ids, gen_ids_decoded
     
     # ------------------ methods for factual eval
-    def position_eval_prompt(self, question, answer_false, answer_true, token_list):
-        prompt = prompt = f"""Analyze token-level contributions to factual incorrectness.
+    def validate_response(self, response, tokens, response_format): 
+        from jsonschema import validate, ValidationError
+        validate(instance=response, schema=response_format)
+        mappings = response["mappings"]
+
+        if len(tokens) != len(mappings):
+            raise ValueError("Token count mismatch")
+
+        for i, (expected, actual) in enumerate(zip(tokens, mappings)):
+            if expected != actual["token"]:
+                raise ValueError(
+                    f"Token mismatch at position {i}: "
+                    f"expected='{expected}', got='{actual['token']}'"
+                )
+    
+    
+    def position_eval_prompt_all(self, question, answer, token_list):
+        prompt = prompt = f"""You are doing a token-level semantics attribution task. Your goal is to identify which tokens carry semantic meaning for the answer.\n
+
+            Inputs: 
             Question: {question}
-            True answer: {answer_true}
-            False Answer: {answer_false}
-            Tokens: {token_list}
+            Answer: {answer}
+            Tokens: {token_list}\n
 
-            For EACH token in tokens, determine if it directly contributed to making the answer false:
+            Task:
+            For EACH token in tokens, classify if it directly contributed to making the answer false: \n
 
-            "yes" = This token is factually wrong or creates the error
-            - Incorrect entity names, numbers, dates, relationships
-            - Negations that make true statements false
-            - Wrong verbs/adjectives that change meaning
+            "yes" = This token carries semantic value:
+            - Entity names (people, places, organizations)
+            - Numbers, dates, quantities, or units
+            - Relationships (e.g., subject-object)
+            - Negations or qualifiers 
+            - Verbs or adjectives that are relevant to answering the question (if so)
 
-            "no" = This token is correct or neutral
-            - Grammatical words (the, is, of, etc.)
-            - Correctly used contextual words
-            - Tokens that would be correct in a true answer
-
-            You MUST respond with ONLY this exact JSON structure:
+            "no" = This token does not carry semantic meaning
+            - Functional words, grammatically necessary but no semanitc value (e.g., "the", "is", "of")
+            - Verbs and adjectives that are mostly descriptive or gramatically necessary for the sentence, but do not influence the big meaning, given the question. \n
+            
+            Important rules: 
+            - ALL tokens MUST be classified.
+            - Output length MUST exactly match the number of input tokens.
+            - When uncertain, default to "no".\n
+            
+            Output format:
+            You MUST respond with ONLY the following JSON structure and nothing else:
+            {"mappings":[
+            {"token":"<token_1>","value":"yes|no"},
+            {"token":"<token_2>","value":"yes|no"}
+            ]}
+            
+            \n Example: 
             {{"mappings": [
                 {{"token": "The", 
                 "value": "no"}},
@@ -198,27 +240,116 @@ class LLM():
                 "value": "no"}},
                 {{"token": "London", 
                 "value": "yes"}}]}}
-            Do not include any explanation, markdown, or other text. Only return the JSON object above."""        
+
+            Do NOT include explanations, markdown, comments, or extra fields.
+            Do NOT reorder tokens.
+            Do NOT omit tokens."""
+        return prompt
+        
+    
+    def position_eval_prompt_inco(self, question, answer_false, answer_true, token_list):
+        prompt = prompt = f"""You are doing a token-level error attribution task. Your goal is to identify which tokens directly cause the answer to be factually incorrect.\n
+
+            Inputs: 
+            Question: {question}
+            True answer: {answer_true}
+            False Answer: {answer_false}
+            Tokens: {token_list}\n
+
+            Task:
+            For EACH token in tokens, classify if it directly contributed to making the answer false: \n
+
+            "yes" = This token is factually wrong or creates the error
+            - Incorrect entity names (people, places, organizations)
+            - Incorrect numbers, dates, quantities, or units
+            - Incorrect relationships (e.g., subject-object swaps)
+            - Negations or qualifiers that invert or invalidate a true statement
+            - Verbs or adjectives that change factual meaning\n
+
+            "no" = This token is correct or neutral
+            - Grammatically necessary but not factually wrong (e.g., "the", "is", "of")
+            - Factually correct in both the true and false answers
+            - Contextually neutral and not responsible for the error\n
+            
+            Important rules: 
+            - ALL tokens MUST be classified.
+            - Output length MUST exactly match the number of input tokens.
+            - If a multi-token entity is incorrect, mark ONLY the token(s) that are factually wrong.
+            - When uncertain, default to "no".\n
+            
+            Output format:
+            You MUST respond with ONLY the following JSON structure and nothing else:
+            {"mappings":[
+            {"token":"<token_1>","value":"yes|no"},
+            {"token":"<token_2>","value":"yes|no"}
+            ]}
+            
+            \n Example: 
+            {{"mappings": [
+                {{"token": "The", 
+                "value": "no"}},
+                {{"token": "capital", 
+                "value": "no"}},
+                {{"token": "of", 
+                "value": "no"}},
+                {{"token": "France", 
+                "value": "no"}},
+                {{"token": "is", 
+                "value": "no"}},
+                {{"token": "London", 
+                "value": "yes"}}]}}
+
+            Do NOT include explanations, markdown, comments, or extra fields.
+            Do NOT reorder tokens.
+            Do NOT omit tokens."""
         return prompt
     
-    def check_positions(self, question, answer_false, answer_true, token_list):
+    def check_positions(self, question, answer_false, answer_true, token_list, mode = 'detect_inco'):
         # class TokenMapping(BaseModel):
         #     mappings: dict[str, str] = Field(default_factory=dict)
         
         # response_model = TokenMapping()
-        response_format = {
-            "type": "json_schema",
-            "value" : {
-                "properties": {
-                    "mappings": { "type": "array", "items" : {"type" : "json_schema", "value" : {"properties" : {"token" : {"type" : "string"}, "value": {"type" : "string"}}}}}
-                    }
-                },
-            "required": ["mappings"]
-            }
-        
-        prompt = self.position_eval_prompt(question, answer_false, answer_true, token_list)
-        result = self.predict(prompt = prompt, temperature = 0.1, response_model = response_format)
-        
+        if self.storage_type == 'hf_inference':
+            response_format = {
+                "type": "json_schema",
+                "value" : {
+                    "properties": {
+                        "mappings": { "type": "array", "items" : {"type" : "json_schema", "value" : {"properties" : {"token" : {"type" : "string"}, "value": {"type" : "string"}}}}}
+                        }
+                    },
+                "required": ["mappings"]
+                }
+        else:
+            response_format = {
+                                "format": {
+                                    "type": "json_schema",
+                                    "value": {
+                                    "type": "object",
+                                    "properties": {
+                                        "mappings": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                            "token": { "type": "string" },
+                                            "value": { "type": "string" }
+                                            },
+                                            "required": ["token", "value"]
+                                            }
+                                        }
+                                    },
+                                    "required": ["mappings"]
+                                    }
+                                }
+                                }
+
+             
+        if mode == 'detect_inco': 
+            prompt = self.position_eval_prompt_inco(question, answer_false, answer_true, token_list)
+        else: 
+            prompt = self.position_eval_prompt_all(question, answer_false, token_list)
+        result = self.predict(prompt = prompt, temperature = 0.01, response_format = response_format)
+        self.validate_response(result, token_list, response_format)
         # assert len(result.mappings) == len(token_list)
         return result
     
@@ -264,50 +395,117 @@ class LLM():
             # FINAL ANSWER (one word only):
             # """
             
-            prompt = f"""Task: Compare two partial text subsequences and determine their semantic relationship based on their final token.\n
+            prompt1 =f"""Compare two partial text subsequences and determine their semantic relationship
+                    ("contradiction", "entailment", or "neutral") based ONLY on their final token.
+                    
+                    Follow this reasoning: 
+                    1. For each subsequence, determine if the last token is semantically relevant.
+                    2. If both final tokens are semantically irrelevant, return "entailment"
+                    3. If one final token is semantically relevant and the other one is irrelevant, return "neutral"
+                    4. If both final token are semantically relevant, return:  
+                        - "contradiction": subsequences will inevitably lead to different meanings, regardless of future tokens. The last tokens make them mutually exclusive.
+                        (e.g. different entity names, different titles, different dates, different names, different professions etc.)
+                        - "entailment": The subsequences will lead to the same meaning, regardless of future tokens. The last tokens are semantically equivalent (e.g., synonyms).
+                        - "neutral": Cannot determine yet whether they'll diverge or converge. The last token doesn't provide enough information, or future tokens could make them equivalent despite current differences.
+                        (e.g. functional tokens, different topics the token refer to)
+                        
+                    Examples: 
+                    Question: Who was the lead singer of Nirvana?
+                    Subsequence 1: The lead singer was Kurt
+                    Subsequence 2: The lead singer was Tom
+                    Answer: contradiction
+                    (Both semantically relevant, different singer names --> contradiction)
 
-            DEFINITIONS:\n
-            - "contradiction": The subsequences will inevitably lead to different meanings, regardless of future tokens. The last tokens make them mutually exclusive.
-            - "entailment": The subsequences will lead to the same meaning, regardless of future tokens. The last tokens are semantically equivalent (e.g., synonyms).
-            - "neutral": Cannot determine yet whether they'll diverge or converge. The last token doesn't provide enough information, or future tokens could make them equivalent despite current differences.
+                    Question: Who was the lead singer of Nirvana?
+                    Subsequence 1: The lead singer of Nirvana, who was born
+                    Subsequence 2: The lead singer of Nirvana, who was known
+                    Answer: neutral
+                    (Both semantically relevant, but refer to different topics (birth vs. fame) --> neutral)
 
-            EXAMPLES:\n
+                    Question: What color is the sky?
+                    Subsequence 1: The sky is blue
+                    Subsequence 2: The sky appears blue
+                    Answer: entailment
+                    (Both semantically irrelevant --> entailment)
 
-            Question: Who was the lead singer of Nirvana?\n
-            Subsequence 1: The lead singer was Kurt\n
-            Subsequence 2: The lead singer was Tom\n
-            Answer: contradiction 
-            (Different names = different factual claims)\n
+                    Question: What is the title of J.R.R. Tolkien's most famous series?
+                    Subsequence 1: The title is "
+                    Subsequence 2: The title is Lord
+                    Answer: neutral
+                    (Both semantically relevant, " just another stylistiv way of expressing a title, no fixed value yet --> neutral)
 
-            Question: Who was the lead singer of Nirvana?\n
-            Subsequence 1: The\n
-            Subsequence 2: Kurt\n
-            Answer: neutral 
-            (Too early; "The" could lead to "The lead singer Kurt...")\n
+                    Question: When did Madonna graduate?
+                    Subsequence 1: Madonna graduated in New York
+                    Subsequence 2: Madonna graduated in painting
+                    Answer: neutral
+                    (Both semantically relevant, but refer to differen topics (place vs. study subject) --> neutral)
 
-            Question: What color is the sky?\n
-            Subsequence 1: The sky is\n
-            Subsequence 2: The sky appears\n
-            Answer: neutral
-            ("is" vs "appears" is stylistic, not semantic)\n
+                    NOW ANALYZE:
+
+                    Question: {question}
+                    Subsequence 1: {text1}
+                    Subsequence 2: {text2}
+
+                    Answer:"""
+                             
             
-            Question: What is the titel of J.R.R. Tolkien's most famous series? \n
-            Subsequence 1: The title is "\n
-            Subsequence 2: The title is Lord\n
-            Answer: neutral
-            (Can still lead to the same title, " is just a stlistic choice for displaying a title)\n
-            
-            Question: When did Madonna graduate?\n
-            Subsequence 1: Madonna graduated in New York\n
-            Subsequence 2: Madonna graduated in painting\n
-            Answer: neutral
-            ("New York" vs "painting" are differnt topics, that do not necessarily contradict each other)\n
+            prompt = f"""Task:
+                    Compare two partial text subsequences and determine their semantic relationship
+                    ("contradiction", "entailment", or "neutral") based ONLY on their final token.
 
-            NOW ANALYZE:\n
-            Question: {question}\n
-            Subsequence 1: {text1}\n
-            Subsequence 2: {text2}\n
-            Answer:"""
+                    DEFINITIONS:
+                    - Atomic fact: An independent piece of information answering a specific aspect of the question (e.g., identity, time, place, property, event).
+                    - A final token refers to a atomic fact if it adds information to an already existing atmomic fact or if it is the beginning of a new, not yet covered topic so e.g. a new property, relation, event, additonal detail etc.
+
+                    REASONING PATH (MUST be followed):
+                    1. For EACH subsequence determine the atomic fact that the final token refers to or introduces.
+                    2. If each final token refers to a different atomic fact --> return "neutral"
+                    3. If both final tokens refer to the same atomic fact:
+                        - "contradiction": subsequences will inevitably lead to different meanings, regardless of future tokens. The last tokens make them mutually exclusive.
+                        (e.g. different entity names, different titles, different dates, different names, different professions etc.)
+                        - "entailment": The subsequences will lead to the same meaning, regardless of future tokens. The last tokens are semantically equivalent (e.g., synonyms).
+                        - "neutral": Cannot determine yet whether they'll diverge or converge. The last token doesn't provide enough information, or future tokens could make them equivalent despite current differences.
+                        (e.g. functional tokens, ordering differences within the fact itself)
+                    
+                    EXAMPLES:
+
+                    Question: Who was the lead singer of Nirvana?
+                    Subsequence 1: The lead singer was Kurt
+                    Subsequence 2: The lead singer was Tom
+                    Answer: contradiction
+                    (Same atomic fact: lead singer identity. Incompatible values --> contradiction)
+
+                    Question: Who was the lead singer of Nirvana?
+                    Subsequence 1: The lead singer of Nirvana, who was born
+                    Subsequence 2: The lead singer of Nirvana, who was known
+                    Answer: neutral
+                    (Different atomic facts: birth vs fame --> neutral)
+
+                    Question: What color is the sky?
+                    Subsequence 1: The sky is blue
+                    Subsequence 2: The sky appears blue
+                    Answer: entailment
+                    (Same atomic fact, only stylistic difference in word choice --> entailment)
+
+                    Question: What is the title of J.R.R. Tolkien's most famous series?
+                    Subsequence 1: The title is "
+                    Subsequence 2: The title is Lord
+                    Answer: neutral
+                    (Same atomic fact, " just another stylistiv way of expressing a title, no fixed value yet --> neutral)
+
+                    Question: When did Madonna graduate?
+                    Subsequence 1: Madonna graduated in New York
+                    Subsequence 2: Madonna graduated in painting
+                    Answer: neutral
+                    (Different atomic facts: place vs field --> neutral)
+
+                    NOW ANALYZE:
+
+                    Question: {question}
+                    Subsequence 1: {text1}
+                    Subsequence 2: {text2}
+
+                    Answer:"""
         # elif mode == 'adapted': 
         #    prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
         #     Sequence 1: {text1}\nSequence 2: {text2}\n
@@ -442,13 +640,22 @@ class LLM():
             # Process each chat (OpenAI API doesn't support batching in a single call)
             outputs = []
             for chat in chats:
-                response = self.client.chat.completions.create(
-                    model=self.model_id,  # or "gpt-3.5-turbo", "gpt-4-turbo", etc.
-                    messages=chat,
-                    max_tokens=5000,
-                    temperature=0,  # equivalent to do_sample=False
+                # response = self.client.chat.completions.create(
+                #     model=self.model_id,  # or "gpt-3.5-turbo", "gpt-4-turbo", etc.
+                #     messages=chat,
+                #     max_tokens=5000,
+                #     temperature=0,  # equivalent to do_sample=False
+                # )
+                # outputs.append(response.choices[0].message.content)
+                result = self.client.responses.create(
+                    model=self.model_id,
+                    input= chat
+                    #temperature=0
+                # reasoning={
+                #     "effort": "none"
+                #     }
                 )
-                outputs.append(response.choices[0].message.content)
+                outputs.append(result.output_text)
             
         
         def extract_label(text, mode):

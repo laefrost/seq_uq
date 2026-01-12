@@ -47,6 +47,7 @@ def generate_subsequences(sampled_tokens, tokenizer):
             
         current_probs.append(current_prob)
         seq_tokens.append({'prev_seq': prev_seq,
+                           'prev_seq_decoded': tokenizer.decode(prev_seq, skip_special_tokens=True), 
                            'current_seq': current_seq,
                            'current_prob' : current_prob, 
                            'alternative_sequence_tokens' : seq_step, 
@@ -73,18 +74,14 @@ def generate_word_subsequences(seq_tokens, generated_text, question, tokens, tok
     #print(tokens)
 
     for w, word in enumerate(generated_words): 
-        #print('wooooooooooooooooort ', word)
         torch.cuda.empty_cache()
         if skipped_words > 0: 
             skipped_words = skipped_words - 1
             skipped = skipped - 1 
             continue
         
-        #print('Token idx ', token_idx)
         word_tokens = [tokens[token_idx]]
-        decoded_tokens = tokenizer.decode(word_tokens)
-        #print('workd tokens', word_tokens)
-        
+        decoded_tokens = tokenizer.decode(word_tokens)        
 
         if len(decoded_tokens) < len(word):  
             #print('lenss ')
@@ -93,8 +90,6 @@ def generate_word_subsequences(seq_tokens, generated_text, question, tokens, tok
                 token_idx = token_idx + 1 
                 word_tokens.append(tokens[token_idx])
                 decoded_tokens = tokenizer.decode(word_tokens)
-                #print("decoded tokens ", decoded_tokens)
-                #print('workd tokens', word_tokens)
                 
         else:
             skipped_words = 0
@@ -120,7 +115,7 @@ def generate_word_subsequences(seq_tokens, generated_text, question, tokens, tok
             alternative_sequences = [question + ' ' + t for t in seq_tokens[w + skipped]['alternative_sequence_decoded']]
             current_prob = seq_tokens[w + skipped]['current_prob']
             alternative_probs = seq_tokens[w + skipped]['alternative_sequence_probs']
-        print('Alternative Sequences: ', alternative_sequences)
+        # print('Alternative Sequences: ', alternative_sequences)
         current_sequence = prev_seq + decoded_tokens 
         seq_words.append({'prev_seq': prev_seq, 
                             'current_seq': current_sequence, 

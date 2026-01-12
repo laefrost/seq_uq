@@ -13,7 +13,12 @@ from sentence_transformers import (
     InputExample,
 )
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.losses import CosineSimilarityLoss
+from sentence_transformers.losses import CosineSimilarityLoss, CoSENTLoss, AnglELoss
+import torch
+from torch import nn, Tensor
+from typing import Iterable, Dict
+import numpy as np
+from finetuning.utils import WeightedCosineSimilarityLoss, CustomEvaluator, DeltaCosineSimilarityLoss, DeltaEvaluator, DeltaCoSENTLoss
 
 # Set the log level to INFO
 logging.basicConfig(
@@ -28,8 +33,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
-def load_and_clean_data(train_path: str, val_path: str):
+def load_and_clean_data(train_path: str, val_path: str, approach = 'og'):
     """Load and clean training and validation data from Excel files."""
     logger.info(f"Loading data from {train_path} and {val_path}")
     
@@ -49,10 +53,10 @@ def load_and_clean_data(train_path: str, val_path: str):
                 df[col] = df[col].fillna(0)
     
     # Validate required columns
-    required_cols = ['sentence1', 'sentence2', 'label']
-    for col in required_cols:
-        if col not in train_df.columns:
-            raise ValueError(f"Missing required column: {col}")
+    # required_cols = ['sentence1', 'sentence2', 'label']
+    #for col in required_cols:
+    #    if col not in train_df.columns:
+    #        raise ValueError(f"Missing required column: {col}")
     
     # CRITICAL: Format data correctly for CosineSimilarityLoss
     # The dataset must have columns: sentence1, sentence2, score (not label)
@@ -71,14 +75,24 @@ def load_and_clean_data(train_path: str, val_path: str):
     logger.info(f"Score range - Val: [{val_df['score'].min()}, {val_df['score'].max()}]")
     
     # Convert to datasets - keep only required columns
-    train_dataset = Dataset.from_pandas(
-        train_df[['sentence1', 'sentence2', 'score']], 
-        preserve_index=False
-    )
-    eval_dataset = Dataset.from_pandas(
-        val_df[['sentence1', 'sentence2', 'score']], 
-        preserve_index=False
-    )
+    if approach == "emb": 
+        train_dataset = Dataset.from_pandas(
+            train_df[['sentence1', 'sentence2', 'score']], 
+            preserve_index=False
+        )
+        eval_dataset = Dataset.from_pandas(
+            val_df[['sentence1', 'sentence2', 'score']], 
+            preserve_index=False
+        )
+    else: 
+        train_dataset = Dataset.from_pandas(
+            train_df[['prefix', 'sentence1', 'sentence2', 'score']],
+            preserve_index=False
+        )
+        eval_dataset = Dataset.from_pandas(
+            val_df[['prefix', 'sentence1', 'sentence2', 'score']], 
+            preserve_index=False
+        )
     
     logger.info(f"Loaded {len(train_dataset)} training samples and {len(eval_dataset)} validation samples")
     logger.info(f"Train dataset features: {train_dataset.features}")
@@ -141,8 +155,13 @@ def create_training_args(run_name: str, num_epochs: int = 10, batch_size: int = 
         run_name=run_name,
         # Additional useful parameters
         load_best_model_at_end=True,
-        metric_for_best_model="eval_sts_dev_spearman_cosine",
-        greater_is_better=True,
+        # metric_for_best_model="eval_custom_spearman_cosine",
+        # greater_is_better=greater_is_better,
+        # metric_for_best_model='eval_evaluator', 
+        # greater_is_better=True
+        # greater_is_better=True
+        metric_for_best_model='eval_loss',
+        greater_is_better=False
     )
 
 
@@ -151,31 +170,72 @@ def main():
     try:
         # Configuration
         model_name = 'sentence-transformers/all-MiniLM-L6-v2'
-        train_path = 'finetuning/train.xlsx'
-        val_path = 'finetuning/val.xlsx'
-        num_epochs = 150  # Changed from 500 to a more reasonable value
-        batch_size = 32
-        use_lora = True
+        #train_path = 'finetuning/prefix_train_data_pt2.xlsx'
+        #val_path = 'finetuning/prefix_val_data.xlsx'
+        train_path = 'finetuning/og_train_data.xlsx'
+        val_path = 'finetuning/og_val_data.xlsx'
         
+        
+        num_epochs = 82  
+        batch_size = 64
+        use_lora = True
+        loss_type = "cosent" 
+        approach = 'emb'
         # Load data
-        train_dataset, eval_dataset = load_and_clean_data(train_path, val_path)
+        train_dataset, eval_dataset = load_and_clean_data(train_path, val_path, approach)
         
         # Setup model
         model, model_name_only = setup_model(model_name, use_lora=use_lora)
         
-        # Initialize loss function
-        loss = CosineSimilarityLoss(model)
-        logger.info(f"Using loss function: {loss.__class__.__name__}")
-        
-        # Create evaluator - use 'score' column instead of 'label'
-        logger.info("Creating evaluator")
-        dev_evaluator = EmbeddingSimilarityEvaluator(
-            sentences1=eval_dataset["sentence1"],
-            sentences2=eval_dataset["sentence2"],
-            scores=eval_dataset["score"],  # Changed from 'label' to 'score'
-            name="sts_dev",
-        )
-        
+        if approach == "emb": 
+            if loss_type == "weighted":
+                loss = WeightedCosineSimilarityLoss(
+                    model, 
+                    contradiction_weight=100.0,  # Increase to focus more on contradictions
+                    neutral_weight=0.5
+                )
+                logger.info("Using WeightedCosineSimilarityLoss")
+            elif loss_type == "cosent": 
+                loss = CoSENTLoss(model)
+                logger.info("Using Cosent loss")
+            else:
+                loss = CosineSimilarityLoss(model)
+                logger.info("Using standard CosineSimilarityLoss")
+            
+            logger.info(f"Using loss function: {loss.__class__.__name__}")
+            
+            # Create evaluator - use 'score' column instead of 'label'
+            logger.info("Creating evaluator")
+            # dev_evaluator = EmbeddingSimilarityEvaluator(
+            #     sentences1=eval_dataset["sentence1"],
+            #     sentences2=eval_dataset["sentence2"],
+            #     scores=eval_dataset["score"],  # Changed from 'label' to 'score'
+            #     name="sts_dev",
+            # )
+            
+            dev_evaluator = CustomEvaluator(
+                sentences1=eval_dataset["sentence1"],
+                sentences2=eval_dataset["sentence2"],
+                scores=eval_dataset["score"],
+                name="custom",
+            )
+        else:
+            if loss_type == "cosent": 
+                loss = DeltaCoSENTLoss(model)
+                logger.info("Using Cosent loss")
+            else:
+                loss = DeltaCosineSimilarityLoss(model)
+                logger.info("Using DeltaCosineSimilarityLoss")
+                
+            # Create delta-based evaluator
+            dev_evaluator = DeltaEvaluator(
+                prefixes=eval_dataset["prefix"],
+                sentences1=eval_dataset["sentence1"],
+                sentences2=eval_dataset["sentence2"],
+                scores=eval_dataset["score"],
+                name="custom",
+            )            
+            
         # Evaluate base model
         logger.info("Evaluating base model")
         base_score = dev_evaluator(model)
@@ -207,7 +267,7 @@ def main():
         logger.info(f"Final model score: {final_score}")
         
         # Save model
-        final_output_dir = f"models_peft/{run_name}/final"
+        final_output_dir = f"models_peft_emb_cosent_82/{run_name}/final"
         Path(final_output_dir).parent.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(final_output_dir)
         logger.info(f"Model saved to {final_output_dir}")

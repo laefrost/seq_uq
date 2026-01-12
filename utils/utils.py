@@ -35,8 +35,22 @@ def get_parser():
         "--model_id", type=str, default="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ", help="Model ID",
     )
     parser.add_argument(
-        "--emb_model_id", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID", choices=['all-MiniLM-L6-v2', 'intfloat/e5-large-v2', 'models_peft/all-MiniLM-L6-v2-peft/final']
+        "--emb_model_id", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID"
+        # choices=['all-MiniLM-L6-v2', 
+        #          'intfloat/e5-large-v2', 
+        #          'models_peft/all-MiniLM-L6-v2-peft/final',
+        #          'models_peft_og/all-MiniLM-L6-v2-peft/final']
     )
+    
+    parser.add_argument(
+        "--emb_model_id_deltas", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID"
+        # choices=['all-MiniLM-L6-v2', 
+        #          'intfloat/e5-large-v2', 
+        #          'models_peft/all-MiniLM-L6-v2-peft/final',
+        #          'models_peft_og/all-MiniLM-L6-v2-peft/final']
+    )
+    
+    
     parser.add_argument(
         "--eval_model_id", type=str, default="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ", help="Model ID of evaluation model",
     )
@@ -45,7 +59,7 @@ def get_parser():
     )
     
     parser.add_argument(
-        "--fact_model_name", type=str, default="hf-inf", help="Model name of fact score model", choices=["retrieval+llama", "retrieval+llama+npm", "retrieval+ChatGPT", "npm", 
+        "--fact_model_name", type=str, default="ChatGPT", help="Model name of fact score model", choices=["retrieval+llama", "retrieval+llama+npm", "retrieval+ChatGPT", "npm", 
                               "retrieval+ChatGPT+npm", "ChatGPT", "gpt-oss", "retrieval+gpt-oss-20b", 
                               "hf-inf", "retrieval+hf-inf"],
     )
@@ -99,7 +113,7 @@ def get_parser():
 
 def construct_prompt(question, task_type = 'qa'):
     if task_type == 'qa': 
-        return f"You are a helpful assistant. Answer the following question in one short sentence (max. 100 tokens). {question}" 
+        return f"You are a helpful assistant. Answer the following question in one single, short sentence. Only output this sentence. {question}" 
     elif task_type == 'bio': 
         return f"You are a helpful assistant. {question}" 
     

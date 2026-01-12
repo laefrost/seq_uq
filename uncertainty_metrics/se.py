@@ -110,12 +110,13 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
     #         print('alternative_sequence_decoded ', decoded_seqs)
     #         cluster_ids = get_semantic_ids(strings_list=decoded_seqs, model = ellm, example=question, mode=mode)
     #     cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
-    print('Sequence Length : ', len(seq_tokens))
+    print('------------------------------------- Sequence Length : ', len(seq_tokens))
     
     for s, step in enumerate(seq_tokens): 
         decoded_seqs = step.get('alternative_sequence_decoded', None) 
         set_step = set(tuple(sublist) for sublist in decoded_seqs)
         print('s----------------------', s, len(decoded_seqs))
+        print(decoded_seqs)
         if len(set_step) == 1: 
             cluster_ids = [0] * len(decoded_seqs)
         else:  
@@ -171,7 +172,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             # entailment_score = 1 if mode == 'data' else 2 
             
             # score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)    
-            print(decoded_seqs)   
+            # print(decoded_seqs)   
             batched_pairs = [] 
             pair_to_idx = {}  # Map (string1, string2) -> index in batched_pairs
             pair_mappings = []  # List of (i, j, score_idx) for matrix population
@@ -199,8 +200,8 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                         pair_to_idx[pair_key] = score_idx
                     
                     pair_mappings.append((i, j, score_idx))
-                    print(string1)
-                    print(string2)
+                    #print(string1)
+                    #print(string2)
             
             # Get scores for unique pairs only
             all_scores = []
@@ -211,7 +212,8 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                 all_scores.extend(scores)
             
             # Populate score matrix
-            print('Number of scores:', len(all_scores), scores)
+            # print('Number of scores:', len(all_scores), scores)
+            # print(pair_mappings)
             score_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), np.nan)
             
             for i, j, score_idx in pair_mappings:
@@ -221,7 +223,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             
             entailment_score = 1 if mode == 'data' else 2 
             score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)
-            # print(score_matrix)       
+            print(score_matrix)       
             
             cluster_ids = [-1] * len(decoded_seqs)
             next_id = 0

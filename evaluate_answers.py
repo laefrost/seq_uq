@@ -40,12 +40,18 @@ def main(args):
         
         generated_answers = []
         topics = []
+        true_answers = []
+        questions = []
         for gen in generations: 
             generated_answers.append(gen['generated_text'])
             topics.append(gen['topic'])
+            questions.append(gen['example']['question'])
+            true_answers.append(gen['example']['answer']['aliases'])
         
         result = fs.get_score(topics=topics,
                        generations=generated_answers,
+                       true_answers = None, 
+                       questions = None, 
                        atomic_facts=None,
                        knowledge_source=None,
                        verbose=True)
@@ -67,9 +73,17 @@ def main(args):
                 gen_words = re.findall(pattern, d['sentence'])
                 if d['is_supported']: 
                     acc_words = ["no"] * len(gen_words)
+                    #print(['!'] * 100)
+                    #acc_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_words)
                 else:
                     acc_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_words)
-                d_list.append({'acc_words' : acc_words, 'supported' : d['is_supported'], 'sentence' : d['sentence'], 'fact' : d['atom'], 'gen_words' : gen_words})
+                d_list.append({'acc_words' : acc_words, 
+                               'supported' : d['is_supported'], 
+                               'sentence' : d['sentence'], 
+                               'fact' : d['atom'], 
+                               'matched_words' : d['matched_words'], 
+                               'matched indices' : d['matched_word_indices'],
+                               'gen_words' : gen_words})
             
             eval_results.append({
                     'question': example['question'], 
