@@ -9,6 +9,7 @@ import re
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from jsonschema import validate, ValidationError
 
 load_dotenv()
 
@@ -85,8 +86,9 @@ class LLM():
             result = self.client.responses.create(
                 model=self.model_id,
                 input= message,
-                text = response_format,
-                temperature=temperature
+                text = {
+                    "format" : response_format}
+                #temperature=temperature
                 # reasoning={
                 #     "effort": "none"
                 #     }
@@ -177,7 +179,6 @@ class LLM():
     
     # ------------------ methods for factual eval
     def validate_response(self, response, tokens, response_format): 
-        from jsonschema import validate, ValidationError
         validate(instance=response, schema=response_format)
         mappings = response["mappings"]
 
@@ -219,14 +220,7 @@ class LLM():
             - Output length MUST exactly match the number of input tokens.
             - When uncertain, default to "no".\n
             
-            Output format:
-            You MUST respond with ONLY the following JSON structure and nothing else:
-            {"mappings":[
-            {"token":"<token_1>","value":"yes|no"},
-            {"token":"<token_2>","value":"yes|no"}
-            ]}
-            
-            \n Example: 
+            \n Example Output structure: 
             {{"mappings": [
                 {{"token": "The", 
                 "value": "no"}},
@@ -277,14 +271,7 @@ class LLM():
             - If a multi-token entity is incorrect, mark ONLY the token(s) that are factually wrong.
             - When uncertain, default to "no".\n
             
-            Output format:
-            You MUST respond with ONLY the following JSON structure and nothing else:
-            {"mappings":[
-            {"token":"<token_1>","value":"yes|no"},
-            {"token":"<token_2>","value":"yes|no"}
-            ]}
-            
-            \n Example: 
+            Output format example: 
             {{"mappings": [
                 {{"token": "The", 
                 "value": "no"}},
@@ -321,27 +308,29 @@ class LLM():
                 }
         else:
             response_format = {
-                                "format": {
-                                    "type": "json_schema",
-                                    "value": {
-                                    "type": "object",
-                                    "properties": {
-                                        "mappings": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                            "token": { "type": "string" },
-                                            "value": { "type": "string" }
-                                            },
-                                            "required": ["token", "value"]
-                                            }
-                                        }
-                                    },
-                                    "required": ["mappings"]
-                                    }
-                                }
-                                }
+                "name": "response_mappings",
+                "type": "json_schema",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "mappings": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "token": { "type": "string" },
+                                    "value": { "type": "string" }
+                                },
+                                "required": ["token", "value"],
+                                "additionalProperties": False
+                            }
+                        }
+                    },
+                    "required": ["mappings"],
+                    "additionalProperties": False
+                }
+            }                                
+                            
 
              
         if mode == 'detect_inco': 
@@ -349,7 +338,7 @@ class LLM():
         else: 
             prompt = self.position_eval_prompt_all(question, answer_false, token_list)
         result = self.predict(prompt = prompt, temperature = 0.01, response_format = response_format)
-        self.validate_response(result, token_list, response_format)
+        #self.validate_response(result, token_list, response_format)
         # assert len(result.mappings) == len(token_list)
         return result
     

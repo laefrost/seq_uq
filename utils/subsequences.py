@@ -57,75 +57,250 @@ def generate_subsequences(sampled_tokens, tokenizer):
 
     return current_probs, seq_tokens
 
-def generate_word_subsequences(seq_tokens, generated_text, question, tokens, tokenizer): 
+def generate_word_subsequences(seq_tokens, generated_text, question, token_ids, tokenizer):
+    """
+    Generate word-level subsequences from token-level data.
+    
+    Args:
+        seq_tokens: List of token-level sequence data
+        generated_text: The full generated text string
+        question: The input question/prompt
+        tokens: List of token IDs
+        tokenizer: Tokenizer object for decoding
+    
+    Returns:
+        List of word-level sequence dictionaries
+    """
     seq_words = []
-    # for i, instance in enumerate(seq_tokens): 
-    skipped = 0 
-    pattern = r"\(|\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|</s>|'|\"|`|´|-"
-    #r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|\(|\)|</s>|\'|\"|\?|\!|\`|\´|\-|-"
     
-    generated_words = re.findall(pattern, generated_text)
+    # Regex pattern for word tokenization
+    # pattern = r"\(|\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|</s>|'|\"|`|´|-"
+    
+    # Extract words from generated text
+    # generated_words = re.findall(pattern, generated_text)
+    
+    generated_words = []
+    current_word = ""
+    
+    tokens = tokenizer.decode(token_ids)
+    #print("Tokens: ----------", tokens)
+    for token_text in tokens:        
+        # Check if this token starts a new word
+        # (adjust the condition based on your tokenizer)
+        if token_text.startswith(' ') or token_text.startswith('Ġ') or token_text.startswith('▁'):
+            # Save previous word if it exists
+            if current_word:
+                generated_words.append(current_word.strip())
+            # Start new word
+            current_word = token_text
+        else:
+            # Continue building current word
+            current_word += token_text
+    
+    # Don't forget the last word
+    if current_word:
+        generated_words.append(current_word.strip())
+    
+    
+    # Initialize tracking variables
     token_idx = 0
-    skipped_words = 0
-    
+    word_idx = 0
     prev_seq = question
-    #print('generated Text', generated_text)
-    #print('Generated Words: ', generated_words)
-    #print(tokens)
-
-    for w, word in enumerate(generated_words): 
+    
+    #print(f"Total generated words: {len(generated_words)}")
+    #print(f"Total tokens: {len(token_ids)}")
+    #print(f"Total seq_tokens: {len(seq_tokens)}")
+    
+    while word_idx < len(generated_words):
         torch.cuda.empty_cache()
-        if skipped_words > 0: 
-            skipped_words = skipped_words - 1
-            skipped = skipped - 1 
-            continue
         
-        word_tokens = [tokens[token_idx]]
-        decoded_tokens = tokenizer.decode(word_tokens)        
-
-        if len(decoded_tokens) < len(word):  
-            #print('lenss ')
-            #print(len(decoded_tokens), len(word)) 
-            while decoded_tokens != word:
-                token_idx = token_idx + 1 
-                word_tokens.append(tokens[token_idx])
+        # Check if we've run out of tokens
+        if token_idx >= len(token_ids):
+            print(f"Warning: Ran out of tokens at word_idx={word_idx}/{len(generated_words)}")
+            break
+        
+        current_word = generated_words[word_idx]
+        word_tokens = [token_ids[token_idx]]
+        decoded_tokens = tokenizer.decode(word_tokens)
+        
+        # Track how many additional words we need to merge
+        words_to_merge = 0
+        
+        # Case 1: Single token doesn't fully represent the word
+        # Need to accumulate more tokens
+        if len(decoded_tokens) < len(current_word):
+            while decoded_tokens != current_word and token_idx + 1 < len(token_ids):
+                token_idx += 1
+                word_tokens.append(token_ids[token_idx])
                 decoded_tokens = tokenizer.decode(word_tokens)
                 
-        else:
-            skipped_words = 0
-            while decoded_tokens != word and skipped_words < len(generated_words):
-                skipped_words = skipped_words + 1 
-                word = word + generated_words[w+1]
+                # Safety check
+                if len(word_tokens) > 20:
+                    print(f"Warning: Accumulated {len(word_tokens)} tokens for word '{current_word}'")
+                    break
         
-        token_idx = token_idx + 1 
-        if len(word_tokens) > 1: 
+        # Case 2: Single token represents multiple words
+        # Need to merge words until they match the decoded token(s)
+        else:
+            merged_word = current_word
+            while decoded_tokens != merged_word and word_idx + words_to_merge + 1 < len(generated_words):
+                words_to_merge += 1
+                merged_word += generated_words[word_idx + words_to_merge]
+                
+                # Safety check
+                if words_to_merge > 10:
+                    print(f"Warning: Merged {words_to_merge} words for token '{decoded_tokens}'")
+                    break
+            
+            current_word = merged_word
+        
+        # Move to next token for next iteration
+        token_idx += 1
+        
+        # Calculate the seq_token indices we need to aggregate
+        # This assumes seq_tokens aligns with tokens, not words
+        num_tokens_used = len(word_tokens)
+        start_seq_idx = token_idx - num_tokens_used
+        end_seq_idx = token_idx
+        
+        # Aggregate data from multiple tokens if needed
+        if num_tokens_used > 1:
             alternative_sequences = []
             alternative_probs = []
             current_probs = []
-            for i, token in enumerate(word_tokens):
-                alternative_sequences.extend([question + ' ' + t for t in seq_tokens[w + skipped + i]['alternative_sequence_decoded']])
-                alternative_probs.extend(seq_tokens[w + skipped + i]['alternative_sequence_probs'])
-                current_probs.append(seq_tokens[w + skipped + i]['current_prob'])
-                
-            alternative_sequences, alternative_probs = remove_subsequences(alternative_sequences, alternative_probs)
-            current_prob = np.prod(current_probs)
             
-            skipped = skipped + len(word_tokens) - 1
-        else: 
-            alternative_sequences = [question + ' ' + t for t in seq_tokens[w + skipped]['alternative_sequence_decoded']]
-            current_prob = seq_tokens[w + skipped]['current_prob']
-            alternative_probs = seq_tokens[w + skipped]['alternative_sequence_probs']
-        # print('Alternative Sequences: ', alternative_sequences)
-        current_sequence = prev_seq + decoded_tokens 
-        seq_words.append({'prev_seq': prev_seq, 
-                            'current_seq': current_sequence, 
-                            'current_prob' : current_prob, 
-                            'alternative_sequence_probs' : alternative_probs, 
-                            'alternative_sequence_decoded' : alternative_sequences, 
-                            'alternative_word_str' : word})
+            for idx in range(start_seq_idx, end_seq_idx):
+                if idx >= len(seq_tokens):
+                    print(f"Warning: seq_token index {idx} out of bounds")
+                    break
+                    
+                seq_data = seq_tokens[idx]
+                alternative_sequences.extend([
+                    question + ' ' + t for t in seq_data['alternative_sequence_decoded']
+                ])
+                alternative_probs.extend(seq_data['alternative_sequence_probs'])
+                current_probs.append(seq_data['current_prob'])
+            
+            # Remove duplicate subsequences
+            alternative_sequences, alternative_probs = remove_subsequences(
+                alternative_sequences, alternative_probs
+            )
+            
+            # Calculate combined probability
+            current_prob = np.prod(current_probs)
+        else:
+            # Single token case
+            if start_seq_idx >= len(seq_tokens):
+                print(f"Warning: seq_token index {start_seq_idx} out of bounds")
+                break
+                
+            seq_data = seq_tokens[start_seq_idx]
+            alternative_sequences = [
+                question + ' ' + t for t in seq_data['alternative_sequence_decoded']
+            ]
+            current_prob = seq_data['current_prob']
+            alternative_probs = seq_data['alternative_sequence_probs']
         
+        # Build current sequence
+        current_sequence = prev_seq + decoded_tokens
+        
+        # Append word-level data
+        seq_words.append({
+            'prev_seq': prev_seq,
+            'current_seq': current_sequence,
+            'current_prob': current_prob,
+            'alternative_sequence_probs': alternative_probs,
+            'alternative_sequence_decoded': alternative_sequences,
+            'alternative_word_str': current_word
+        })
+        
+        # Update for next iteration
         prev_seq = current_sequence
-    return seq_words
+        word_idx += words_to_merge + 1
+        
+        # Debug output
+        # print(f"Processed {word_idx}/{len(generated_words)} words, {len(seq_words)} seq_words created")
+    
+    #print(f"Final: {len(seq_words)} seq_words from {len(generated_words)} generated_words")
+    
+    # Validation
+    if len(seq_words) != len(generated_words):
+        print(f"WARNING: Length mismatch! seq_words={len(seq_words)}, generated_words={len(generated_words)}")
+        print(f"Difference: {len(generated_words) - len(seq_words)}")
+    
+    return seq_words, generated_words
+
+
+
+# def generate_word_subsequences(seq_tokens, generated_text, question, tokens, tokenizer): 
+#     seq_words = []
+#     # for i, instance in enumerate(seq_tokens): 
+#     skipped = 0 
+#     pattern = r"\(|\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|</s>|'|\"|`|´|-"
+#     #r"\([0-9]+(?:[-–][0-9]+)*\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|\(|\)|</s>|\'|\"|\?|\!|\`|\´|\-|-"
+    
+#     generated_words = re.findall(pattern, generated_text)
+#     token_idx = 0
+#     skipped_words = 0
+    
+#     prev_seq = question
+#     #print('generated Text', generated_text)
+#     #print('Generated Words: ', generated_words)
+#     #print(tokens)
+
+#     for w, word in enumerate(generated_words): 
+#         torch.cuda.empty_cache()
+#         if skipped_words > 0: 
+#             skipped_words = skipped_words - 1
+#             skipped = skipped - 1 
+#             continue
+        
+#         word_tokens = [tokens[token_idx]]
+#         decoded_tokens = tokenizer.decode(word_tokens)        
+
+#         if len(decoded_tokens) < len(word):  
+#             #print('lenss ')
+#             #print(len(decoded_tokens), len(word)) 
+#             while decoded_tokens != word:
+#                 token_idx = token_idx + 1 
+#                 word_tokens.append(tokens[token_idx])
+#                 decoded_tokens = tokenizer.decode(word_tokens)
+                
+#         else:
+#             skipped_words = 0
+#             while decoded_tokens != word and skipped_words < len(generated_words):
+#                 skipped_words = skipped_words + 1 
+#                 word = word + generated_words[w+1]
+        
+#         token_idx = token_idx + 1 
+#         if len(word_tokens) > 1: 
+#             alternative_sequences = []
+#             alternative_probs = []
+#             current_probs = []
+#             for i, token in enumerate(word_tokens):
+#                 alternative_sequences.extend([question + ' ' + t for t in seq_tokens[w + skipped + i]['alternative_sequence_decoded']])
+#                 alternative_probs.extend(seq_tokens[w + skipped + i]['alternative_sequence_probs'])
+#                 current_probs.append(seq_tokens[w + skipped + i]['current_prob'])
+                
+#             alternative_sequences, alternative_probs = remove_subsequences(alternative_sequences, alternative_probs)
+#             current_prob = np.prod(current_probs)
+            
+#             skipped = skipped + len(word_tokens) - 1
+#         else: 
+#             alternative_sequences = [question + ' ' + t for t in seq_tokens[w + skipped]['alternative_sequence_decoded']]
+#             current_prob = seq_tokens[w + skipped]['current_prob']
+#             alternative_probs = seq_tokens[w + skipped]['alternative_sequence_probs']
+#         # print('Alternative Sequences: ', alternative_sequences)
+#         current_sequence = prev_seq + decoded_tokens 
+#         seq_words.append({'prev_seq': prev_seq, 
+#                             'current_seq': current_sequence, 
+#                             'current_prob' : current_prob, 
+#                             'alternative_sequence_probs' : alternative_probs, 
+#                             'alternative_sequence_decoded' : alternative_sequences, 
+#                             'alternative_word_str' : word})
+        
+#         prev_seq = current_sequence
+#     return seq_words
 
 
 # def is_subsequence(small, large):

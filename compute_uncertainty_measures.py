@@ -358,7 +358,7 @@ def main(args):
     ds_name = args.dataset
     consider_types = args.consider_types
     
-    generations = load(f'{exp_name}_{ds_name}_generations.pkl')
+    generations = load(f'results/{exp_name}_{ds_name}_generations.pkl')
     logging.info('Dataset loaded!')
     logging.info(type(generations))
     uqs = []    
@@ -385,28 +385,28 @@ def main(args):
         gen_ids = element['gen_ids']
         seq_tokens = element['seq_tokens']
         sampled_tokens = element['sampled_tokens']
-        seq_words = generate_word_subsequences(seq_tokens, element['generated_text'], example['question'], gen_ids, llm.tokenizer)
-        print('length words, tokens ',len(seq_tokens), len(seq_words))
+        seq_words, generated_words = generate_word_subsequences(seq_tokens, element['generated_text'], example['question'], gen_ids, llm.tokenizer)
+        # print('length words, tokens ',len(seq_tokens), len(seq_words))
         
-        # if model_id != ellm_model_id: 
-        #     #try:
-        #     ses_words = se_pipe_across_words(example['question'], seq_words, ellm, mode='adapted')
-        #     ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, ellm, mode='adapted')
-        #     #except Exception as e:
-        #     #    print('in except 1')
-        #     #    print("Error in token-level UQ:", e)
-        #     #    ses_words = None
-        #     #    ses_tokens = None
+        if model_id != ellm_model_id: 
+            #try:
+            ses_words = se_pipe_across_words(example['question'], seq_words, ellm, mode='adapted')
+            ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, ellm, mode='adapted')
+            #except Exception as e:
+            #    print('in except 1')
+            #    print("Error in token-level UQ:", e)
+            #    ses_words = None
+            #    ses_tokens = None
                 
-        # else: 
-        #     #try:
-        #     ses_words = se_pipe_across_words(example['question'], seq_words, llm)
-        #     ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, llm)
-        #     #except Exception as e:
-        #     #    print('in except 1')
-        #     #    print("Error in token-level UQ:", e)
-        ses_words = None
-        ses_tokens = None
+        else: 
+            #try:
+            ses_words = se_pipe_across_words(example['question'], seq_words, llm)
+            ses_tokens = se_pipe_across_tokens(example['question'], seq_tokens, llm)
+            #except Exception as e:
+            #    print('in except 1')
+            #    print("Error in token-level UQ:", e)
+        #ses_words = None
+        #ses_tokens = None
         
         try:
             if emb_model_id != emb_model_id_deltas:
@@ -433,6 +433,7 @@ def main(args):
         #{'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'pkes': pkes, 'true_answer' : example['answer']}#['aliases']}
         uqs.append({'question': example['question'], 
                     'gen_text' : element['generated_text'], 
+                    'gen_words': generated_words,
                     'gen_ids' : gen_ids, 
                     'ses_token' : ses_tokens, 
                     'ses_word' : ses_words,
