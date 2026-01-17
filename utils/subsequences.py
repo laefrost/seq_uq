@@ -80,28 +80,42 @@ def generate_word_subsequences(seq_tokens, generated_text, question, token_ids, 
     # generated_words = re.findall(pattern, generated_text)
     
     generated_words = []
-    current_word = ""
+    current_tokens = []
     
-    tokens = tokenizer.decode(token_ids)
+    #tokens = tokenizer.decode(token_ids)
     #print("Tokens: ----------", tokens)
-    for token_text in tokens:        
+    start_new = False
+    for token in token_ids:  
+        # print(token_text)      
         # Check if this token starts a new word
         # (adjust the condition based on your tokenizer)
-        if token_text.startswith(' ') or token_text.startswith('Ġ') or token_text.startswith('▁'):
+        token_text = tokenizer.convert_ids_to_tokens(token)
+        #print(token_text)
+        if token_text.startswith((',', '.', '!', "\"", "?", ";", ":", "'", "(", ")", '\u2581(', '</s>')) or token_text in (',', '.', '!', '"', '?', ';', ':', "'", '(', ')', '</s>'):
+            #print("found special char, ", token_text)
+            if current_tokens:
+                word = tokenizer.convert_tokens_to_string(current_tokens)
+                generated_words.append(word) 
+            start_new = True
+            current_tokens = [token_text]
+        elif token_text.startswith(' ') or token_text.startswith('\u2581') or start_new:
             # Save previous word if it exists
-            if current_word:
-                generated_words.append(current_word.strip())
+            if current_tokens:
+                word = tokenizer.convert_tokens_to_string(current_tokens)
+                generated_words.append(word)
             # Start new word
-            current_word = token_text
+            current_tokens = [token_text]
+            start_new = False
         else:
             # Continue building current word
-            current_word += token_text
+            current_tokens.append(token_text)
     
     # Don't forget the last word
-    if current_word:
-        generated_words.append(current_word.strip())
+    if current_tokens:
+        word = tokenizer.convert_tokens_to_string(current_tokens)
+        generated_words.append(word)
     
-    
+    #print(generated_words)
     # Initialize tracking variables
     token_idx = 0
     word_idx = 0

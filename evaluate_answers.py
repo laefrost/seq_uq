@@ -194,7 +194,7 @@ def main(args):
     #                 'acc_facts' : acc_facts
     #                 })
     
-    save(eval_results, f'{exp_name}_{ds_name}_evals_atomic_facts.pkl')
+    save(eval_results, f'{exp_name}_{ds_name}_evals_3.pkl')
     logging.info('Run complete.')
     del llm_eval
 

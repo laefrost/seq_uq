@@ -386,7 +386,8 @@ def main(args):
         seq_tokens = element['seq_tokens']
         sampled_tokens = element['sampled_tokens']
         seq_words, generated_words = generate_word_subsequences(seq_tokens, element['generated_text'], example['question'], gen_ids, llm.tokenizer)
-        # print('length words, tokens ',len(seq_tokens), len(seq_words))
+        print('length words, tokens ',len(seq_tokens), len(seq_words), len(generated_words))
+        print(generated_words)
         
         if model_id != ellm_model_id: 
             #try:
