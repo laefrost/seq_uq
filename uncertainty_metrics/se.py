@@ -78,11 +78,14 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
 
     return probs_per_semantic_id
 
-def predictive_entropy_rao(probs):
-    entropy = - np.sum(probs * np.log(probs))
+def predictive_entropy_rao(probs, weights = None):
+    if weights is None:
+        entropy = - np.sum(probs * np.log(probs))
+    else: 
+        entropy = - np.sum(weights * probs * np.log(probs))
     return entropy
 
-def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 'complete'): 
+def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 'complete', weights = None): 
     entropies = []
     counter = 0
     # Compute semantic entropy.
@@ -93,8 +96,7 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 
             probs_step = probs['alternative_token_probs']
         semantic_ids = ids['cluster_ids']
         probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
-        # TODO: Get weight per cluster: 
-        pe = predictive_entropy_rao(probs_per_semantic_id)
+        pe = predictive_entropy_rao(probs_per_semantic_id, weights)
         entropies.append(pe)
         counter = counter + 1
     return entropies
@@ -102,6 +104,7 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 
 
 def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapted'): 
     cluster_ids_across_steps = []
+    cluster_weights_across_steps = []
     MAX_BATCH = 32
     # for s, step in enumerate(seq_tokens): 
     #     decoded_seqs = step.get('alternative_sequence_decoded', None)
@@ -123,6 +126,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
         print(decoded_seqs)
         if len(set_step) == 1: 
             cluster_ids = [0] * len(decoded_seqs)
+            cluster_weights = [1] * len(decoded_seqs)
         else:  
             # print(decoded_seqs)   
             # indices = []   
@@ -230,6 +234,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             print(score_matrix)       
             
             cluster_ids = [-1] * len(decoded_seqs)
+            cluster_weights = []
             next_id = 0
             for i, string1 in enumerate(decoded_seqs):
                 # Check if string1 already has an id assigned.
@@ -248,10 +253,28 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             assert -1 not in cluster_ids
             
             print('cluster ids: ',cluster_ids)
+            
+            unique_cids = np.array(set(cluster_ids))
+            weights = []
+            for c_id in unique_cids: 
+                indices = np.where(cluster_ids == c_id)[0]
+                c_weights = []
+                for idx in indices: 
+                    row = score_matrix[idx]
+                    relevant_entries = row[row != 2]
+                    c_weights.append(1 / (relevant_entries.sum() / length(relevant_entries)))
+                weights.append({c_id : np.mean(c_weights)})
         
+            print("Gewichte: ", weights)
+            for c_id in cluster_ids: 
+                cluster_weights.append(weights[c_id])
+                
+                
         cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
+        cluster_weights_across_steps.append({'cluster_weights' : cluster_weights})
+        assert len(cluster_ids) == len(decoded_seqs)
         assert len(cluster_ids) == len(decoded_seqs)
     
-    return cluster_ids_across_steps
+    return cluster_ids_across_steps, cluster_weights_across_steps
             
         

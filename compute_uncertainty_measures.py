@@ -25,17 +25,22 @@ from peft import PeftModel
 setup_logger()
 
 def se_pipe_across_tokens(question, seq_tokens, ellm, mode = 'adapted'): 
-    cluster_ids_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, mode=mode)
+    cluster_ids_across_steps, cluster_weights_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, mode=mode)
     entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete') 
-    entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'subsequ')    
-    return entropies_ss, entropies_to # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
+    entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'subsequ')  
+    entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete', weights = cluster_weights_across_steps) 
+    entropies_to_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'subsequ', weights = cluster_weights_across_steps)    
+  
+    return entropies_ss, entropies_to, entropies_ss_weighted, entropies_to_weighted # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
 
 
 def se_pipe_across_words(question, seq_words, ellm, mode = 'adapted'):   
-    cluster_ids_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_words, question = question, ellm=ellm, mode=mode)
+    cluster_ids_across_steps, cluster_weights_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_words, question = question, ellm=ellm, mode=mode)
     entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete') 
-    entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'subsequ')    
-    return entropies_ss, entropies_to # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
+    entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'subsequ')
+    entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete', weights = cluster_weights_across_steps) 
+    entropies_to_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'subsequ', weights = cluster_weights_across_steps)    
+    return entropies_ss, entropies_to, entropies_ss_weighted, entropies_to_weighted # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
 
 
 def uq_pipe_across_tokens(seq_tokens, emb_model, emb_model_deltas, question, gen_ids, tokenizer_llm, tokenizer_emb):
@@ -393,8 +398,8 @@ def main(args):
         
         if model_id != ellm_model_id: 
             #try:
-            ses_words, ses_words_to = se_pipe_across_words(example['question'], seq_words, ellm, mode='adapted')
-            ses_tokens, ses_tokens_to = se_pipe_across_tokens(example['question'], seq_tokens, ellm, mode='adapted')
+            ses_words, ses_words_to, ses_words_w, ses_words_to_w = se_pipe_across_words(example['question'], seq_words, ellm, mode='adapted')
+            ses_tokens, ses_tokens_to, ses_tokens_w, ses_tokens_to_w = se_pipe_across_tokens(example['question'], seq_tokens, ellm, mode='adapted')
             #except Exception as e:
             #    print('in except 1')
             #    print("Error in token-level UQ:", e)
@@ -403,8 +408,8 @@ def main(args):
                 
         else: 
             #try:
-            ses_words, ses_words_to = se_pipe_across_words(example['question'], seq_words, llm)
-            ses_tokens, ses_tokens_to = se_pipe_across_tokens(example['question'], seq_tokens, llm)
+            ses_words, ses_words_to, ses_words_w, ses_words_to_w = se_pipe_across_words(example['question'], seq_words, llm)
+            ses_tokens, ses_tokens_to, ses_tokens_w, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens, llm)
             #except Exception as e:
             #    print('in except 1')
             #    print("Error in token-level UQ:", e)
@@ -440,8 +445,12 @@ def main(args):
                     'gen_ids' : gen_ids, 
                     'ses_token' : ses_tokens, 
                     'ses_word' : ses_words,
+                    'ses_token_w' : ses_tokens_w, 
+                    'ses_word_w' : ses_words_w,
                     'ses_token_to' : ses_tokens_to, 
                     'ses_word_to' : ses_words_to,
+                    'ses_token_to_w' : ses_tokens_to_w, 
+                    'ses_word_to_' : ses_words_to_w,
                     'pkes_token_emb': pkes_token_emb, 
                     'pkes_token_sum' : pkes_token_sum, 
                     'pkes_token_word' : pkes_token_word, 
