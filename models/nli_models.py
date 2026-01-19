@@ -52,6 +52,6 @@ class NLI():
             labels.append(value)
             scores.append(score)
     
-        return labels, scores
+        return labels
     
     

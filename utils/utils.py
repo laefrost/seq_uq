@@ -57,7 +57,6 @@ def get_parser():
     parser.add_argument(
         "--ellm_model_id", type=str, default="openai/gpt-oss-20b", help="Model ID of NLI model",
     )
-    
     parser.add_argument(
         "--fact_model_name", type=str, default="ChatGPT", help="Model name of fact score model", choices=["retrieval+llama", "retrieval+llama+npm", "retrieval+ChatGPT", "npm", 
                               "retrieval+ChatGPT+npm", "ChatGPT", "gpt-oss", "retrieval+gpt-oss-20b", 
@@ -80,7 +79,7 @@ def get_parser():
         help="Dataset to use")
     
     parser.add_argument(
-        "--exp_name", type=str, help="Eperiment name used for saving")
+        "--exp_name", type=str, help="Experiment name used for saving")
         
     parser.add_argument(
         "--num_samples", type=int, default=5,

@@ -3,7 +3,7 @@ from copy import deepcopy
 import torch
 import re
 
-def remove_subsequences(sequences, probs):
+def remove_subsequences(sequences, probs, probs_tokens):
     keep = [True] * len(sequences)
 
     for i, seq_i in enumerate(sequences):
@@ -12,14 +12,15 @@ def remove_subsequences(sequences, probs):
         for j, seq_j in enumerate(sequences):
             if i != j and keep[j]:
                 # if seq_i is entirely inside seq_j, drop seq_i
-                if seq_i in seq_j:
+                if seq_i in seq_j and seq_i != seq_j:
                     keep[i] = False
                     break
 
     filtered_sequences = [s for s, k in zip(sequences, keep) if k]
     filtered_probs = [p for p, k in zip(probs, keep) if k]
+    filtered_token_probs = [p for p, k in zip(probs_tokens, keep) if k]
 
-    return filtered_sequences, filtered_probs
+    return filtered_sequences, filtered_probs, filtered_token_probs
 
 
 
@@ -29,6 +30,7 @@ def generate_subsequences(sampled_tokens, tokenizer):
     for i, items in enumerate(sampled_tokens):
         seq_step = list()
         seq_probs = []
+        token_probs = []
         s_str = []
         seq_step_decoded = []
         current_seq = items['current_seq']
@@ -44,6 +46,7 @@ def generate_subsequences(sampled_tokens, tokenizer):
             tmp = current_probs + [token['prob']]
             seq_probs.append(np.prod(tmp))
             s_str.append(token['token_str'])
+            token_probs.append(token['prob'])
             
         current_probs.append(current_prob)
         seq_tokens.append({'prev_seq': prev_seq,
@@ -52,6 +55,7 @@ def generate_subsequences(sampled_tokens, tokenizer):
                            'current_prob' : current_prob, 
                            'alternative_sequence_tokens' : seq_step, 
                            'alternative_sequence_probs' : seq_probs, 
+                           'alternative_token_probs' : token_probs,
                            'alternative_sequence_decoded' : seq_step_decoded,
                            'alternative_tokens_str' : s_str})
 
@@ -91,7 +95,8 @@ def generate_word_subsequences(seq_tokens, generated_text, question, token_ids, 
         # (adjust the condition based on your tokenizer)
         token_text = tokenizer.convert_ids_to_tokens(token)
         #print(token_text)
-        if token_text.startswith((',', '.', '!', "\"", "?", ";", ":", "'", "(", ")", '\u2581(', '</s>')) or token_text in (',', '.', '!', '"', '?', ';', ':', "'", '(', ')', '</s>'):
+        if token_text.startswith((',', '.', '!', "\"", "?", ";", ":", "(", ")", "`", "´", '\u2581(', '</s>', 
+                                  '\u2581\"', '\u2581(', '\u2581\'', "\u2581`", "\u2581´" )): #or token_text in (',', '.', '!', '"', '?', ';', ':', "'", '(', ')', '</s>'):
             #print("found special char, ", token_text)
             if current_tokens:
                 word = tokenizer.convert_tokens_to_string(current_tokens)
@@ -181,6 +186,7 @@ def generate_word_subsequences(seq_tokens, generated_text, question, token_ids, 
         if num_tokens_used > 1:
             alternative_sequences = []
             alternative_probs = []
+            alternative_token_probs = []
             current_probs = []
             
             for idx in range(start_seq_idx, end_seq_idx):
@@ -193,11 +199,12 @@ def generate_word_subsequences(seq_tokens, generated_text, question, token_ids, 
                     question + ' ' + t for t in seq_data['alternative_sequence_decoded']
                 ])
                 alternative_probs.extend(seq_data['alternative_sequence_probs'])
+                alternative_token_probs.extend(seq_data['alternative_token_probs'])
                 current_probs.append(seq_data['current_prob'])
             
             # Remove duplicate subsequences
-            alternative_sequences, alternative_probs = remove_subsequences(
-                alternative_sequences, alternative_probs
+            alternative_sequences, alternative_probs, alternative_token_probs = remove_subsequences(
+                alternative_sequences, alternative_probs, alternative_token_probs
             )
             
             # Calculate combined probability
@@ -214,6 +221,7 @@ def generate_word_subsequences(seq_tokens, generated_text, question, token_ids, 
             ]
             current_prob = seq_data['current_prob']
             alternative_probs = seq_data['alternative_sequence_probs']
+            alternative_token_probs = seq_data['alternative_token_probs']
         
         # Build current sequence
         current_sequence = prev_seq + decoded_tokens
@@ -224,6 +232,7 @@ def generate_word_subsequences(seq_tokens, generated_text, question, token_ids, 
             'current_seq': current_sequence,
             'current_prob': current_prob,
             'alternative_sequence_probs': alternative_probs,
+            'alternative_token_probs' : alternative_token_probs, 
             'alternative_sequence_decoded': alternative_sequences,
             'alternative_word_str': current_word
         })

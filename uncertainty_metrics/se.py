@@ -82,14 +82,18 @@ def predictive_entropy_rao(probs):
     entropy = - np.sum(probs * np.log(probs))
     return entropy
 
-def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens): 
+def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 'complete'): 
     entropies = []
     counter = 0
     # Compute semantic entropy.
     for ids, probs in zip(cluster_ids_across_steps, seq_tokens): 
-        probs_step = probs['alternative_sequence_probs']
+        if mode == 'complete':
+            probs_step = probs['alternative_sequence_probs']
+        else: 
+            probs_step = probs['alternative_token_probs']
         semantic_ids = ids['cluster_ids']
         probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
+        # TODO: Get weight per cluster: 
         pe = predictive_entropy_rao(probs_per_semantic_id)
         entropies.append(pe)
         counter = counter + 1
@@ -237,7 +241,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                         # if are_equivalent(string1, strings_list[j]):
                         #    semantic_set_ids[j] = next_id
                         # if score_matrix[i, j] == entailment_score:
-                        if score_matrix[i, j] in [1, 2]:
+                        if score_matrix[i, j] in [2]:
                             cluster_ids[j] = next_id
                     next_id += 1
 
