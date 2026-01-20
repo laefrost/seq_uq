@@ -36,8 +36,8 @@ def main(args):
     fact_model_name = args.fact_model_name
 
     nlp = spacy.load("en_core_web_sm")
-    generations = load(f'results/{exp_name}_{ds_name}_generations.pkl')
-    uqs = load(f'results/{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2.pkl.pkl')
+    generations = load(f'results_final/{exp_name}_{ds_name}_generations.pkl')
+    uqs = load(f'results_final/{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2.pkl')
     logging.info('Answers loaded!')
     
     metric = get_metric(args.metric)
@@ -62,9 +62,11 @@ def main(args):
         subtrees_words = []
         depths_words = []
         sem_rels_words = []
-        for gen, u in enumerate(generations, uqs):
+        sem_rels_tokens = []
+        for gen, u in zip(generations, uqs):
             example = gen['example']
-            gen_words = u['gen_words']
+            #gen_words = u['gen_words']
+            #gen_tokens = gen['gen_tokens']
             generated_answers.append(gen['generated_text'])
             topics.append(gen['topic'])
             questions.append(gen['example']['question'])
@@ -81,30 +83,34 @@ def main(args):
             depth_words = [get_depth(token) for token in doc]
             depths_words.append(depth_words)
             
-            try: 
-                sem_rel_words = llm_eval.check_positions(example['question'], gen['generated_text'], example['answer']['aliases'], gen_words, mode='get_se_imp')
-            except Exception as e:
-                print("error in sem_rel_words", e)
-                sem_rel_words = [None]
-            # sem_rel_words =['tmp_value']
-            # sem_rels_words.append(sem_rel_words)
+            #try: 
+            #    sem_rel_words = llm_eval.check_positions(example['question'], gen['generated_text'], example['answer']['aliases'], gen_words, mode='get_se_imp')
+            #    sem_rel_tokens = llm_eval.check_positions(example['question'], gen['generated_text'], example['answer']['aliases'], gen_tokens, mode='get_se_imp')
+            #except Exception as e:
+            #    print("error in sem_rel_words", e)
+            #    sem_rel_words = [None]
+            sem_rel_words =['tmp_value']
+            sem_rels_words.append(sem_rel_words)
+            sem_rel_tokens =['tmp_value']
+            sem_rels_tokens.append(sem_rel_tokens)
         
         if task_type != 'qa': atomic_facts = None
         result = fs.get_score(topics=topics,
                        generations=generated_answers,
                        true_answers = None, 
                        questions = None, 
-                       atomic_facts=None,
+                       atomic_facts=atomic_facts,
                        knowledge_source=None,
                        verbose=True)
         
         
         assert len(result['decisions']) == len(generations)
         
-        for decision, gen, role_words, subtree_words, depth_words, sem_rel_words  in zip(result['decisions'], generations, roles_words, subtrees_words, depths_words, sem_rels_words):
+        for decision, gen, role_words, subtree_words, depth_words, sem_rel_words, sem_rel_tokens, u in zip(result['decisions'], generations, roles_words, subtrees_words, depths_words, sem_rels_words, sem_rels_tokens, uqs):
             example = gen['example']
             generated_text = gen['generated_text']
             gen_tokens = gen['gen_tokens']
+            gen_words = u['gen_words']
             d_list = []
             print(decision)
             for d in decision: 
@@ -121,16 +127,20 @@ def main(args):
                 # sem_rel_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_words, mode='get_se_imp')
                 if d['is_supported']: 
                     acc_words = ["no"] * len(gen_words)
+                    acc_tokens = ["no"] * len(gen_tokens)
                 else:
                     try:
                         print("checking positins")
                         # Evlt muss man das gar nicht anpassen dann mapped das halt auf die ganze Sequenz 
                         acc_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_words)
+                        acc_tokens = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_tokens)
                     except Exception as e:
                         print("Error acc_words: --------------",e) 
                         acc_words = None
                 d_list.append({'acc_words' : acc_words, 
+                               'acc_tokens' : acc_tokens, 
                                'sem_rel_words' : sem_rel_words,
+                               'sem_rel_tokens' : sem_rel_tokens,
                                'role_words' : role_words,
                                'subtree_words' : subtrees_words, 
                                'depth_words' : depth_words,
@@ -194,7 +204,7 @@ def main(args):
     #                 'acc_facts' : acc_facts
     #                 })
     
-    save(eval_results, f'{exp_name}_{ds_name}_evals_3.pkl')
+    save(eval_results, f'{exp_name}_{ds_name}_evals_final.pkl')
     logging.info('Run complete.')
     del llm_eval
 

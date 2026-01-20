@@ -26,6 +26,7 @@ setup_logger()
 
 def se_pipe_across_tokens(question, seq_tokens, ellm, mode = 'adapted'): 
     cluster_ids_across_steps, cluster_weights_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, mode=mode)
+    print('weights ----------', cluster_weights_across_steps)
     entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete') 
     entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'subsequ')  
     entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete', weights = cluster_weights_across_steps) 
@@ -36,6 +37,7 @@ def se_pipe_across_tokens(question, seq_tokens, ellm, mode = 'adapted'):
 
 def se_pipe_across_words(question, seq_words, ellm, mode = 'adapted'):   
     cluster_ids_across_steps, cluster_weights_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_words, question = question, ellm=ellm, mode=mode)
+    print('weights ----------', cluster_weights_across_steps)
     entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete') 
     entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'subsequ')
     entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete', weights = cluster_weights_across_steps) 
@@ -365,7 +367,7 @@ def main(args):
     ds_name = args.dataset
     consider_types = args.consider_types
     
-    generations = load(f'{exp_name}_{ds_name}_generations.pkl')
+    generations = load(f'results_final/{exp_name}_{ds_name}_generations.pkl')
     logging.info('Dataset loaded!')
     logging.info(type(generations))
     uqs = []    
@@ -478,7 +480,7 @@ def main(args):
     if model_id != ellm_model_id:
         del ellm
     del llm
-    save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2-2.pkl')
+    save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2-test.pkl')
         
 if __name__ == '__main__':
     parser = get_parser()

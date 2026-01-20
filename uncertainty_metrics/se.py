@@ -79,9 +79,13 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
     return probs_per_semantic_id
 
 def predictive_entropy_rao(probs, weights = None):
+    print("Proooooobs ", probs)
+    print("Weeeiiights ", weights)
     if weights is None:
         entropy = - np.sum(probs * np.log(probs))
     else: 
+        weights = np.array(weights)
+        probs = np.array(probs)
         entropy = - np.sum(weights * probs * np.log(probs))
     return entropy
 
@@ -89,16 +93,29 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 
     entropies = []
     counter = 0
     # Compute semantic entropy.
-    for ids, probs in zip(cluster_ids_across_steps, seq_tokens): 
-        if mode == 'complete':
-            probs_step = probs['alternative_sequence_probs']
-        else: 
-            probs_step = probs['alternative_token_probs']
-        semantic_ids = ids['cluster_ids']
-        probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
-        pe = predictive_entropy_rao(probs_per_semantic_id, weights)
-        entropies.append(pe)
-        counter = counter + 1
+    if weights is not None: 
+        for ids, probs, weight in zip(cluster_ids_across_steps, seq_tokens, weights): 
+            if mode == 'complete':
+                probs_step = probs['alternative_sequence_probs']
+            else: 
+                probs_step = probs['alternative_token_probs']
+            semantic_ids = ids['cluster_ids']
+            cluster_weights = weight['cluster_weights']
+            probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
+            pe = predictive_entropy_rao(probs_per_semantic_id, cluster_weights)
+            entropies.append(pe)
+            counter = counter + 1
+    else: 
+        for ids, probs in zip(cluster_ids_across_steps, seq_tokens): 
+            if mode == 'complete':
+                probs_step = probs['alternative_sequence_probs']
+            else: 
+                probs_step = probs['alternative_token_probs']
+            semantic_ids = ids['cluster_ids']
+            probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
+            pe = predictive_entropy_rao(probs_per_semantic_id)
+            entropies.append(pe)
+            counter = counter + 1
     return entropies
 
 
@@ -123,10 +140,9 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
         decoded_seqs = step.get('alternative_sequence_decoded', None) 
         set_step = set(tuple(sublist) for sublist in decoded_seqs)
         print('s----------------------', s, len(decoded_seqs))
-        print(decoded_seqs)
         if len(set_step) == 1: 
             cluster_ids = [0] * len(decoded_seqs)
-            cluster_weights = [1] * len(decoded_seqs)
+            cluster_weights = [1]
         else:  
             # print(decoded_seqs)   
             # indices = []   
@@ -252,27 +268,38 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
 
             assert -1 not in cluster_ids
             
-            print('cluster ids: ',cluster_ids)
-            
-            unique_cids = np.array(set(cluster_ids))
-            weights = []
+            cluster_ids = np.array(cluster_ids)
+            unique_cids = np.unique(cluster_ids)
             for c_id in unique_cids: 
-                indices = np.where(cluster_ids == c_id)[0]
-                c_weights = []
-                for idx in indices: 
-                    row = score_matrix[idx]
-                    relevant_entries = row[row != 2]
-                    c_weights.append(1 / (relevant_entries.sum() / length(relevant_entries)))
-                weights.append({c_id : np.mean(c_weights)})
-        
-            print("Gewichte: ", weights)
-            for c_id in cluster_ids: 
-                cluster_weights.append(weights[c_id])
+                # print('unique id ', c_id)
+                # print('cluster_ids before where:', cluster_ids)
+                # print('cluster_ids shape before where:', cluster_ids.shape)
+                # print('type of c_id:', type(c_id), c_id)
+                
+                # Check the comparison result
+                # comparison = cluster_ids == c_id
+                # print('comparison result:', comparison)
+                # print('comparison type:', type(comparison))
+                # print('comparison shape:', comparison.shape if isinstance(comparison, np.ndarray) else 'not an array')
+                if 1 in all_scores:
+                    indices = np.where(cluster_ids == c_id)[0]
+                    c_weights = []
+                    for idx in indices: 
+                        row = score_matrix[idx]
+                        relevant_entries = row[row == 0]
+                        # Neutral to all other sequences --> drop it
+                        if len(relevant_entries) == 0: 
+                            c_weights.append(0)
+                        else: 
+                            c_weights.append(1) #len(relevant_entries) / len(row))
+                    cluster_weights.append(np.mean(c_weights))
+                # there are no neutral tokens
+                else: 
+                    cluster_weights = [1] * unique_cids
                 
                 
         cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
         cluster_weights_across_steps.append({'cluster_weights' : cluster_weights})
-        assert len(cluster_ids) == len(decoded_seqs)
         assert len(cluster_ids) == len(decoded_seqs)
     
     return cluster_ids_across_steps, cluster_weights_across_steps
