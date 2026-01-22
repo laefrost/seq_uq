@@ -229,25 +229,35 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             
             # Get scores for unique pairs only
             all_scores = []
+            contr_probs = []
             
             for b in range(0, len(batched_pairs), MAX_BATCH):
                 sub = batched_pairs[b:b+MAX_BATCH]
-                scores = ellm.check_implication_batch(sub, question, mode)
+                scores, contr_prob = ellm.check_implication_batch(sub, question, mode)
                 all_scores.extend(scores)
+                contr_probs.extend(contr_prob)
             
             # Populate score matrix
             # print('Number of scores:', len(all_scores), scores)
             # print(pair_mappings)
             score_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), np.nan)
+            contr_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), 0)
             
             for i, j, score_idx in pair_mappings:
                 score = all_scores[score_idx]
+                prob = contr_probs[score_idx]
                 score_matrix[i, j] = score
                 score_matrix[j, i] = score
+                
+                contr_matrix[i, j] = prob
+                contr_matrix[j, i] = prob
+                
             
             entailment_score = 1 if mode == 'data' else 2 
             score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)
-            print(score_matrix)       
+            contr_matrix = np.nan_to_num(contr_matrix, nan=0)
+            print(score_matrix)  
+            print(contr_matrix)     
             
             cluster_ids = [-1] * len(decoded_seqs)
             cluster_weights = []
@@ -271,31 +281,39 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             cluster_ids = np.array(cluster_ids)
             unique_cids = np.unique(cluster_ids)
             for c_id in unique_cids: 
-                # print('unique id ', c_id)
-                # print('cluster_ids before where:', cluster_ids)
-                # print('cluster_ids shape before where:', cluster_ids.shape)
-                # print('type of c_id:', type(c_id), c_id)
+                indices = np.where(cluster_ids == c_id)[0]
+                cluster_weight = []
+                for idx in indices: 
+                    row = score_matrix[idx]
+                    row_probs = contr_matrix[idx]
+                    relevant_entries = np.where(row != 2)[0]
+                    if len(relevant_entries) > 0: 
+                        relevant_probs = row_probs[relevant_entries]
+                        cluster_weight.append(relevant_probs.mean())
+                    else: 
+                        cluster_weight.append(1)
                 
-                # Check the comparison result
-                # comparison = cluster_ids == c_id
-                # print('comparison result:', comparison)
-                # print('comparison type:', type(comparison))
-                # print('comparison shape:', comparison.shape if isinstance(comparison, np.ndarray) else 'not an array')
-                if 1 in all_scores:
-                    indices = np.where(cluster_ids == c_id)[0]
-                    c_weights = []
-                    for idx in indices: 
-                        row = score_matrix[idx]
-                        relevant_entries = row[row == 0]
-                        # Neutral to all other sequences --> drop it
-                        if len(relevant_entries) == 0: 
-                            c_weights.append(0)
-                        else: 
-                            c_weights.append(1) #len(relevant_entries) / len(row))
-                    cluster_weights.append(np.mean(c_weights))
-                # there are no neutral tokens
-                else: 
-                    cluster_weights = [1] * unique_cids
+                cluster_mean = sum(cluster_weight) / len(cluster_weight)    
+                cluster_weights.append(cluster_mean)
+                
+                    
+                    # TODO get indices of relevant entries and get corresponding values from row_probs
+                    
+                # if 1 in all_scores:
+                #     indices = np.where(cluster_ids == c_id)[0]
+                #     c_weights = []
+                #     for idx in indices: 
+                #         row = score_matrix[idx]
+                #         relevant_entries = row[row == 0]
+                #         # Neutral to all other sequences --> drop it
+                #         if len(relevant_entries) == 0: 
+                #             c_weights.append(0)
+                #         else: 
+                #             c_weights.append(1) #len(relevant_entries) / len(row))
+                #     cluster_weights.append(np.mean(c_weights))
+                # # there are no neutral tokens
+                # else: 
+                #     cluster_weights = [1] * unique_cids
                 
                 
         cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})

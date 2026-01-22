@@ -367,7 +367,7 @@ def main(args):
     ds_name = args.dataset
     consider_types = args.consider_types
     
-    generations = load(f'results_final/{exp_name}_{ds_name}_generations.pkl')
+    generations = load(f'{exp_name}_{ds_name}_generations.pkl')
     logging.info('Dataset loaded!')
     logging.info(type(generations))
     uqs = []    
@@ -480,7 +480,7 @@ def main(args):
     if model_id != ellm_model_id:
         del ellm
     del llm
-    save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2-test.pkl')
+    save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2.pkl')
         
 if __name__ == '__main__':
     parser = get_parser()

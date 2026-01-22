@@ -30,19 +30,26 @@ class NLI():
         ]
             
         outputs = self.pipe(
-                inputs
+                inputs, top_k = None
         )
         
         scores = []
         labels = []
+        
         for result in outputs:
             print("in nli ----------------------------------")
             print(result)
+            score, label = 0, ''
+            for label_score in result:
+                print(f"{label_score['label']}: {label_score['score']:.4f}")
+                if score < label_score['score']: 
+                    score = label_score['score']
+                    label = label_score['label'].lower()
             # result_scores = {item["label"].lower(): item["score"] for item in result}
-            # print(result_scores)
+            print('predicted label: ', label, "predicted prob:", score)
             # max_score = max(result_scores, key=result_scores.get)
-            label = result['label'].lower()
-            score = result['score']
+            # label = result['label'].lower()
+            # score = result['score']
             if label == "entailment": 
                 value = 2
             elif label == "contradiction": 
@@ -52,6 +59,6 @@ class NLI():
             labels.append(value)
             scores.append(score)
     
-        return labels
+        return labels, scores
     
     

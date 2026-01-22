@@ -35,40 +35,40 @@ def main(args):
     llm = LLM(model_id=model_id)
     logging.info('Model init')
 
-    # # Start answer generation.
-    # logging.info(80 * '=')
-    # logging.info('Generating answers: ')
-    # logging.info(80 * '=')
+    # Start answer generation.
+    logging.info(80 * '=')
+    logging.info('Generating answers: ')
+    logging.info(80 * '=')
         
-    # generations = []
+    generations = []
 
-    # it = 0
-    # for s, example in enumerate(samples): 
-    #     if (it + 1 % 10) == 0:
-    #         gc.collect()
-    #         torch.cuda.empty_cache()
-    #     it += 1
-    #     # print(25 * '-', s, ': ', example)
+    it = 0
+    for s, example in enumerate(samples): 
+        if (it + 1 % 10) == 0:
+            gc.collect()
+            torch.cuda.empty_cache()
+        it += 1
+        # print(25 * '-', s, ': ', example)
         
-    #     prompt = construct_prompt(example['question'], task_type=task_type)
+        prompt = construct_prompt(example['question'], task_type=task_type)
         
-    #     generated_text, sampled_tokens, gen_ids, gen_ids_decoded = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.9)
-    #     current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
+        generated_text, sampled_tokens, gen_ids, gen_ids_decoded = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.9)
+        current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
         
-    #     generations.append({
-    #         'example' : example,
-    #         'generated_text' : generated_text, 
-    #         'sampled_tokens' : sampled_tokens, 
-    #         'gen_ids' : gen_ids, 
-    #         'seq_tokens' : seq_tokens, 
-    #         'current_probs' : current_probs}
-    #     )
+        generations.append({
+            'example' : example,
+            'generated_text' : generated_text, 
+            'sampled_tokens' : sampled_tokens, 
+            'gen_ids' : gen_ids, 
+            'seq_tokens' : seq_tokens, 
+            'current_probs' : current_probs}
+        )
         
-    # # del llm
+    # del llm
     
-    # save(generations, f'{exp_name}_{ds_name}_data_generations.pkl')
-    # save(experiment_details, f'{exp_name}_{ds_name}_data_details.pkl')
-    # logging.info('Run complete.')
+    save(generations, f'{exp_name}_{ds_name}_data_generations.pkl')
+    save(experiment_details, f'{exp_name}_{ds_name}_data_details.pkl')
+    logging.info('Run complete.')
     
     generations = load(f'{exp_name}_{ds_name}_data_generations.pkl')
     
@@ -141,7 +141,8 @@ def main(args):
                     'label' : label
                 }
                 entries.append(entry)
-    save(entries, f'{exp_name}_{ds_name}_data_v6.pkl')
+    save(entries, f'{exp_name}_{ds_name}_data.pkl')
+    del llm
     del ellm
     
     
