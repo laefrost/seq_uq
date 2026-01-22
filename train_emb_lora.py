@@ -172,11 +172,11 @@ def main():
         model_name = 'sentence-transformers/all-MiniLM-L6-v2'
         #train_path = 'finetuning/prefix_train_data_pt2.xlsx'
         #val_path = 'finetuning/prefix_val_data.xlsx'
-        train_path = 'finetuning/og_train_data.xlsx'
+        train_path = 'finetuning/train_final.xlsx'
         val_path = 'finetuning/og_val_data.xlsx'
         
         
-        num_epochs = 82  
+        num_epochs = 50  
         batch_size = 64
         use_lora = True
         loss_type = "cosent" 
