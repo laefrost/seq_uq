@@ -26,16 +26,12 @@ def main(args):
     logging.info('Dataset loaded!')
     
     model_id = args.model_id
-    eval_model_id = args.eval_model_id
     exp_name = args.exp_name
     ds_name = args.dataset
     task_type = args.task_type
     k = args.k    
     # Initialize model
     llm = LLM(model_id=model_id)
-    
-    if model_id != eval_model_id:
-        llm_eval = LLM(model_id=eval_model_id, storage_type='hf_inference')
 
     logging.info('Model init')
 
@@ -108,8 +104,6 @@ def main(args):
     save(experiment_details, f'{exp_name}_{ds_name}_experiment_details.pkl')
     logging.info('Run complete.')
     del llm
-    if model_id != eval_model_id: 
-        del llm_eval
 
 
 if __name__ == '__main__':

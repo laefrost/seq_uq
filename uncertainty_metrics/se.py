@@ -79,8 +79,8 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
     return probs_per_semantic_id
 
 def predictive_entropy_rao(probs, weights = None):
-    print("Proooooobs ", probs)
-    print("Weeeiiights ", weights)
+    #print("Proooooobs ", probs)
+    #print("Weeeiiights ", weights)
     if weights is None:
         entropy = - np.sum(probs * np.log(probs))
     else: 
@@ -256,28 +256,39 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             entailment_score = 1 if mode == 'data' else 2 
             score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)
             contr_matrix = np.nan_to_num(contr_matrix, nan=0)
-            print(score_matrix)  
-            print(contr_matrix)     
+            #print(score_matrix)  
+            #print(contr_matrix)     
+            
+            print("scores ", all_scores)
+            print("contr probs ", contr_probs)
             
             cluster_ids = [-1] * len(decoded_seqs)
             cluster_weights = []
             next_id = 0
+            neutral_placeholder = 1000
+            print('cluster_ids: ', cluster_ids)
             for i, string1 in enumerate(decoded_seqs):
                 # Check if string1 already has an id assigned.
                 if cluster_ids[i] == -1:
                     # If string1 has not been assigned an id, assign it next_id.
-                    cluster_ids[i] = next_id
-                    for j in range(i+1, len(decoded_seqs)):
-                        # Search through all remaining strings. If they are equivalent to string1, assign them the same id.
-                        # if are_equivalent(string1, strings_list[j]):
-                        #    semantic_set_ids[j] = next_id
-                        # if score_matrix[i, j] == entailment_score:
-                        if score_matrix[i, j] in [2]:
-                            cluster_ids[j] = next_id
-                    next_id += 1
+                    row = score_matrix[i]
+                    relevant_entries = row[row == 1]
+                    if len(relevant_entries) == len(decoded_seqs)-1: 
+                        cluster_ids[i] = neutral_placeholder
+                    else: 
+                        cluster_ids[i] = next_id
+                        for j in range(i+1, len(decoded_seqs)):
+                            # Search through all remaining strings. If they are equivalent to string1, assign them the same id.
+                            # if are_equivalent(string1, strings_list[j]):
+                            #    semantic_set_ids[j] = next_id
+                            # if score_matrix[i, j] == entailment_score:
+                            if score_matrix[i, j] in [2]:
+                                cluster_ids[j] = next_id
+                        next_id += 1
 
             assert -1 not in cluster_ids
-            
+            print('cluster ids after: ', cluster_ids)
+            cluster_ids = [next_id if x == neutral_placeholder else x for x in cluster_ids]
             cluster_ids = np.array(cluster_ids)
             unique_cids = np.unique(cluster_ids)
             for c_id in unique_cids: 
@@ -297,7 +308,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                 cluster_weights.append(cluster_mean)
                 
                     
-                    # TODO get indices of relevant entries and get corresponding values from row_probs
+                # TODO get indices of relevant entries and get corresponding values from row_probs
                     
                 # if 1 in all_scores:
                 #     indices = np.where(cluster_ids == c_id)[0]

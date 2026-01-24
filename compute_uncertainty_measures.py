@@ -367,7 +367,7 @@ def main(args):
     ds_name = args.dataset
     consider_types = args.consider_types
     
-    generations = load(f'{exp_name}_{ds_name}_generations.pkl')
+    generations = load(f'results_final/{exp_name}_{ds_name}_generations.pkl')
     logging.info('Dataset loaded!')
     logging.info(type(generations))
     uqs = []    

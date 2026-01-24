@@ -24,6 +24,15 @@ def load_ds(dataset_name, seed, add_options=None, num_samples = 5):
             # {'question' : 'Who is Leana de Bruin?'},
             # {'question' : 'Who is Tera Van Beilen?}'}
         ]
+        
+    elif dataset_name == 'factscore_bio': 
+        with open("data/prompt_entities.txt", "r", encoding="utf-8") as f:
+            entities = f.read().splitlines()
+        entities_reduced = random.sample(list(entities), num_samples)
+        sampled_examples = []    
+        for ent in entities_reduced: 
+            sampled_examples.append({'question' : f'Tell me a bio of {ent}.', 'answer' : None, 'topic': str(ent)})
+            
     return sampled_examples
    
     

@@ -178,8 +178,8 @@ def main():
         val_path = 'finetuning/val.xlsx'
         
         
-        num_epochs = 50  
-        batch_size = 64
+        num_epochs = 1  
+        batch_size = 16
         use_lora = True
         loss_type = "cosent" 
         approach = 'emb'
