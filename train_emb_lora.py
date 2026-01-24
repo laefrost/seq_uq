@@ -62,7 +62,9 @@ def load_and_clean_data(train_path: str, val_path: str, approach = 'og'):
     # The dataset must have columns: sentence1, sentence2, score (not label)
     # Rename 'label' to 'score' if needed
     if 'label' in train_df.columns and 'score' not in train_df.columns:
-        train_df = train_df.rename(columns={'label': 'score'})
+        train_df = train_df.rename(columns={'label': 'score'})        
+        
+    if 'label' in val_df.columns and 'score' not in val_df.columns:
         val_df = val_df.rename(columns={'label': 'score'})
     
     # Ensure score is float type
@@ -173,7 +175,7 @@ def main():
         #train_path = 'finetuning/prefix_train_data_pt2.xlsx'
         #val_path = 'finetuning/prefix_val_data.xlsx'
         train_path = 'finetuning/train_final.xlsx'
-        val_path = 'finetuning/og_val_data.xlsx'
+        val_path = 'finetuning/val.xlsx'
         
         
         num_epochs = 50  
@@ -267,7 +269,7 @@ def main():
         logger.info(f"Final model score: {final_score}")
         
         # Save model
-        final_output_dir = f"models_peft_emb_cosent_82/{run_name}/final"
+        final_output_dir = f"models_peft_emb_cosent_teeeeest/{run_name}/final"
         Path(final_output_dir).parent.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(final_output_dir)
         logger.info(f"Model saved to {final_output_dir}")
