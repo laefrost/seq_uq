@@ -46,6 +46,30 @@ def get_semantic_ids(strings_list, model, strict_entailment=False, example=None,
 
     return semantic_set_ids
 
+def predictive_entropy_per_topic(semantic_ids, topic_ids, probs): 
+    unique_topic_ids = set(topic_ids)
+    entropies_per_topic = []
+    for topic_id in unique_topic_ids: 
+        # get the entries from the clusters
+        relevant_entries = np.where(topic_ids == topic_id)[0]
+        topic_cluster_ids = semantic_ids[relevant_entries]
+        unique_topic_cluster_ids = set(topic_cluster_ids)
+        topic_probs = probs[relevant_entries]
+        sum_topic_probs = np.sum(topic_probs)
+        probs_per_semantic_id = []
+        for uid in unique_topic_cluster_ids:
+            id_indices = [pos for pos, x in enumerate(semantic_ids) if x == uid]
+            id_prob = [probs[i] for i in id_indices]
+            sum_token_prob = np.sum(id_prob)
+            # basically the cluster probability 
+            prob_norm = sum_token_prob / sum_topic_probs
+            probs_per_semantic_id.append(prob_norm)
+
+        cond_se = predictive_entropy_rao(probs_per_semantic_id)
+        entropies_per_topic.append(cond_se)
+        
+    return entropies_per_topic
+            
 
 def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
     """Sum probabilities with the same semantic id.
@@ -53,8 +77,6 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
     Log-Sum-Exp because input and output probabilities in log space.
     """
     unique_ids = sorted(list(set(semantic_ids)))
-    # print(unique_ids)
-    # print(list(range(len(unique_ids))))
     assert unique_ids == list(range(len(unique_ids)))
     probs_per_semantic_id = []
     sum_clusters_probs = np.sum(probs)
@@ -79,8 +101,6 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
     return probs_per_semantic_id
 
 def predictive_entropy_rao(probs, weights = None):
-    #print("Proooooobs ", probs)
-    #print("Weeeiiights ", weights)
     if weights is None:
         entropy = - np.sum(probs * np.log(probs))
     else: 
@@ -89,22 +109,26 @@ def predictive_entropy_rao(probs, weights = None):
         entropy = - np.sum(weights * probs * np.log(probs))
     return entropy
 
-def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 'complete', weights = None): 
+def predictive_cond_entropy(topics, pred_entropies_per_topic):
+    freqs = [(value, topics.count(value) / len(topics)) for value in set(topics)] 
+    cond_entropy = np.sum(freqs * pred_entropies_per_topic)
+    return cond_entropy
+
+def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 'complete', topics = None): 
     entropies = []
     counter = 0
     # Compute semantic entropy.
-    if weights is not None: 
-        for ids, probs, weight in zip(cluster_ids_across_steps, seq_tokens, weights): 
+    if topics is not None: 
+        for ids, probs, topic in zip(cluster_ids_across_steps, seq_tokens, topics): 
             if mode == 'complete':
                 probs_step = probs['alternative_sequence_probs']
             else: 
                 probs_step = probs['alternative_token_probs']
             semantic_ids = ids['cluster_ids']
-            cluster_weights = weight['cluster_weights']
-            probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
-            pe = predictive_entropy_rao(probs_per_semantic_id, cluster_weights)
-            entropies.append(pe)
-            counter = counter + 1
+            topic_ids = topic['topic_ids']
+            pe_topics = predictive_entropy_per_topic(semantic_ids, topic_ids, probs)
+            cond_pe = predictive_cond_entropy(topics, pe_topics)
+            entropies.append(cond_pe)
     else: 
         for ids, probs in zip(cluster_ids_across_steps, seq_tokens): 
             if mode == 'complete':
@@ -121,7 +145,8 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 
 
 def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapted'): 
     cluster_ids_across_steps = []
-    cluster_weights_across_steps = []
+    # cluster_weights_across_steps = []
+    topic_ids_across_steps = []
     MAX_BATCH = 32
     # for s, step in enumerate(seq_tokens): 
     #     decoded_seqs = step.get('alternative_sequence_decoded', None)
@@ -142,7 +167,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
         print('s----------------------', s, len(decoded_seqs))
         if len(set_step) == 1: 
             cluster_ids = [0] * len(decoded_seqs)
-            cluster_weights = [1]
+            # cluster_weights = [1]
         else:  
             # print(decoded_seqs)   
             # indices = []   
@@ -263,49 +288,62 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             print("contr probs ", contr_probs)
             
             cluster_ids = [-1] * len(decoded_seqs)
-            cluster_weights = []
+            topic_ids = [-1] * len(decoded_seqs)
+            #cluster_weights = []
             next_id = 0
-            neutral_placeholder = 1000
+            next_topic_id = 0
+            #neutral_placeholder = 1000
             print('cluster_ids: ', cluster_ids)
             for i, string1 in enumerate(decoded_seqs):
                 # Check if string1 already has an id assigned.
                 if cluster_ids[i] == -1:
                     # If string1 has not been assigned an id, assign it next_id.
-                    row = score_matrix[i]
-                    relevant_entries = row[row == 1]
-                    if len(relevant_entries) == len(decoded_seqs)-1: 
-                        cluster_ids[i] = neutral_placeholder
-                    else: 
-                        cluster_ids[i] = next_id
-                        for j in range(i+1, len(decoded_seqs)):
-                            # Search through all remaining strings. If they are equivalent to string1, assign them the same id.
-                            # if are_equivalent(string1, strings_list[j]):
-                            #    semantic_set_ids[j] = next_id
-                            # if score_matrix[i, j] == entailment_score:
-                            if score_matrix[i, j] in [2]:
-                                cluster_ids[j] = next_id
-                        next_id += 1
+                    # row = score_matrix[i]
+                    #relevant_entries = row[row == 1]
+                    #if len(relevant_entries) == len(decoded_seqs)-1: 
+                    #    cluster_ids[i] = neutral_placeholder
+                    #else: 
+                    cluster_ids[i] = next_id
+                    for j in range(i+1, len(decoded_seqs)):
+                        # Search through all remaining strings. If they are equivalent to string1, assign them the same id.
+                        # if are_equivalent(string1, strings_list[j]):
+                        #    semantic_set_ids[j] = next_id
+                        # if score_matrix[i, j] == entailment_score:
+                        if score_matrix[i, j] in [2]:
+                            cluster_ids[j] = next_id
+                    next_id += 1
+                
+                if topic_ids[i] == -1: 
+                    topic_ids[i] = next_topic_id
+                    for j in range(i+1, len(decoded_seqs)):
+                        if score_matrix[i, j] in [0, 2]:
+                            topic_ids[j] = next_topic_id
+                    next_topic_id += 1
+                    
+                    
 
             assert -1 not in cluster_ids
+            assert -1 not in topic_ids
             print('cluster ids after: ', cluster_ids)
-            cluster_ids = [next_id if x == neutral_placeholder else x for x in cluster_ids]
-            cluster_ids = np.array(cluster_ids)
-            unique_cids = np.unique(cluster_ids)
-            for c_id in unique_cids: 
-                indices = np.where(cluster_ids == c_id)[0]
-                cluster_weight = []
-                for idx in indices: 
-                    row = score_matrix[idx]
-                    row_probs = contr_matrix[idx]
-                    relevant_entries = np.where(row != 2)[0]
-                    if len(relevant_entries) > 0: 
-                        relevant_probs = row_probs[relevant_entries]
-                        cluster_weight.append(relevant_probs.mean())
-                    else: 
-                        cluster_weight.append(1)
+            print('topic ids after: ', topic_ids)
+            # cluster_ids = [next_id if x == neutral_placeholder else x for x in cluster_ids]
+            # cluster_ids = np.array(cluster_ids)
+            # unique_cids = np.unique(cluster_ids)
+            # for c_id in unique_cids: 
+            #     indices = np.where(cluster_ids == c_id)[0]
+            #     cluster_weight = []
+            #     for idx in indices: 
+            #         row = score_matrix[idx]
+            #         row_probs = contr_matrix[idx]
+            #         relevant_entries = np.where(row != 2)[0]
+            #         if len(relevant_entries) > 0: 
+            #             relevant_probs = row_probs[relevant_entries]
+            #             cluster_weight.append(relevant_probs.mean())
+            #         else: 
+            #             cluster_weight.append(1)
                 
-                cluster_mean = sum(cluster_weight) / len(cluster_weight)    
-                cluster_weights.append(cluster_mean)
+            #     cluster_mean = sum(cluster_weight) / len(cluster_weight)    
+            #     cluster_weights.append(cluster_mean)
                 
                     
                 # TODO get indices of relevant entries and get corresponding values from row_probs
@@ -328,9 +366,10 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                 
                 
         cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
-        cluster_weights_across_steps.append({'cluster_weights' : cluster_weights})
+        topic_ids_across_steps.append({'topic_ids' : topic_ids})
+        # cluster_weights_across_steps.append({'cluster_weights' : cluster_weights})
         assert len(cluster_ids) == len(decoded_seqs)
     
-    return cluster_ids_across_steps, cluster_weights_across_steps
+    return cluster_ids_across_steps, topic_ids_across_steps
             
         

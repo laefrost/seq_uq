@@ -239,6 +239,56 @@ class LLM():
             Do NOT reorder tokens.
             Do NOT omit tokens."""
         return prompt
+    
+    def position_eval_prompt_bios(self, question, text, answer_false, token_list):
+        prompt = prompt = f"""You are doing a token-level error attribution task. Your goal is to identify which tokens directly cause the fact to be factually incorrect within the context of the generated answer.\n
+
+            Inputs: 
+            Question: {question}
+            Generated text: {text}
+            False fact: {answer_false}
+            Tokens: {token_list}\n
+
+            Task:
+            For EACH token in tokens, classify if it directly contributed to making the fact false: \n
+
+            "yes" = This token is factually wrong or creates the error
+            - Incorrect entity names (people, places, organizations)
+            - Incorrect numbers, dates, quantities, or units
+            - Incorrect relationships (e.g., subject-object swaps)
+            - Negations or qualifiers that invert or invalidate a true statement
+            - Verbs or adjectives that change factual meaning\n
+
+            "no" = This token is correct or neutral
+            - Grammatically necessary but not factually wrong (e.g., "the", "is", "of")
+            - Factually correct in both the true and false answers
+            - Contextually neutral and not responsible for the error\n
+            
+            Important rules: 
+            - ALL tokens MUST be classified.
+            - Output length MUST exactly match the number of input tokens.
+            - If a multi-token entity is incorrect, mark ONLY the token(s) that are factually wrong.
+            - When uncertain, default to "no".\n
+            
+            Output format example: 
+            {{"mappings": [
+                {{"token": "The", 
+                "value": "no"}},
+                {{"token": "capital", 
+                "value": "no"}},
+                {{"token": "of", 
+                "value": "no"}},
+                {{"token": "France", 
+                "value": "no"}},
+                {{"token": "is", 
+                "value": "no"}},
+                {{"token": "London", 
+                "value": "yes"}}]}}
+
+            Do NOT include explanations, markdown, comments, or extra fields.
+            Do NOT reorder tokens.
+            Do NOT omit tokens."""
+        return prompt
         
     
     def position_eval_prompt_inco(self, question, answer_false, answer_true, token_list):
@@ -291,7 +341,7 @@ class LLM():
             Do NOT omit tokens."""
         return prompt
     
-    def check_positions(self, question, answer_false, answer_true, token_list, mode = 'detect_inco'):
+    def check_positions(self, question, answer_false, answer_true, token_list, generated_text = None, mode = 'detect_inco'):
         # class TokenMapping(BaseModel):
         #     mappings: dict[str, str] = Field(default_factory=dict)
         
@@ -334,7 +384,10 @@ class LLM():
 
              
         if mode == 'detect_inco': 
-            prompt = self.position_eval_prompt_inco(question, answer_false, answer_true, token_list)
+            if generated_text is not None: 
+                prompt = self.position_eval_prompt_inco(question, answer_false, answer_true, token_list)
+            else:
+                prompt = self.position_eval_prompt_bios(question, generated_text, answer_false, token_list)
         else: 
             prompt = self.position_eval_prompt_all(question, answer_false, token_list)
         result = self.predict(prompt = prompt, temperature = 0.01, response_format = response_format)

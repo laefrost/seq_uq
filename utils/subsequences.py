@@ -224,7 +224,7 @@ def generate_word_subsequences(seq_tokens, generated_text, question, token_ids, 
             alternative_token_probs = seq_data['alternative_token_probs']
         
         # Build current sequence
-        current_sequence = prev_seq + decoded_tokens
+        current_sequence = prev_seq + ' ' + decoded_tokens
         
         # Append word-level data
         seq_words.append({

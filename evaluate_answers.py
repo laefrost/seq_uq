@@ -37,7 +37,7 @@ def main(args):
 
     nlp = spacy.load("en_core_web_sm")
     generations = load(f'results_final/{exp_name}_{ds_name}_generations.pkl')
-    uqs = load(f'results_final/{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2.pkl')
+    uqs = load(f'results_final/{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_15.pkl')
     logging.info('Answers loaded!')
     
     metric = get_metric(args.metric)
@@ -55,7 +55,6 @@ def main(args):
         
         generated_answers = []
         topics = []
-        true_answers = []
         questions = []
         atomic_facts = []
         roles_words = []
@@ -63,14 +62,18 @@ def main(args):
         depths_words = []
         sem_rels_words = []
         sem_rels_tokens = []
+        counter = 0
+        generations = generations[0:3]
+        uqs = uqs[0:3]
+        assert len(generations) == len(uqs)
         for gen, u in zip(generations, uqs):
+            counter += 1 
             example = gen['example']
             #gen_words = u['gen_words']
             #gen_tokens = gen['gen_tokens']
             generated_answers.append(gen['generated_text'])
             topics.append(gen['topic'])
             questions.append(gen['example']['question'])
-            true_answers.append(gen['example']['answer']['aliases'])
             atomic_facts.append([gen['generated_text']])
 
             doc = nlp(gen['generated_text'])
@@ -101,7 +104,8 @@ def main(args):
                        questions = None, 
                        atomic_facts=atomic_facts,
                        knowledge_source=None,
-                       verbose=True)
+                       verbose=True, 
+                       do_matching=False)
         
         
         assert len(result['decisions']) == len(generations)
@@ -130,13 +134,17 @@ def main(args):
                     acc_tokens = ["no"] * len(gen_tokens)
                 else:
                     try:
-                        print("checking positins")
-                        # Evlt muss man das gar nicht anpassen dann mapped das halt auf die ganze Sequenz 
-                        acc_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_words)
-                        acc_tokens = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_tokens)
+                        if task_type == 'qa': 
+                            acc_words = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_words)
+                            acc_tokens = llm_eval.check_positions(example['question'], generated_text, example['answer']['aliases'], gen_tokens)
+                        else: 
+                            print('checking different positions')
+                            acc_words = llm_eval.check_positions(example['question'], d['atom'], None, gen_words, generated_text=generated_text)
+                            acc_tokens = llm_eval.check_positions(example['question'], d['atom'], None, gen_tokens, generated_text=generated_text)
                     except Exception as e:
                         print("Error acc_words: --------------",e) 
                         acc_words = None
+                        acc_tokens = None
                 d_list.append({'acc_words' : acc_words, 
                                'acc_tokens' : acc_tokens, 
                                'sem_rel_words' : sem_rel_words,
@@ -204,7 +212,7 @@ def main(args):
     #                 'acc_facts' : acc_facts
     #                 })
     
-    save(eval_results, f'{exp_name}_{ds_name}_evals_final.pkl')
+    save(eval_results, f'{exp_name}_{ds_name}_evals_test.pkl')
     logging.info('Run complete.')
     del llm_eval
 

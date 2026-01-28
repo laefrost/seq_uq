@@ -25,23 +25,21 @@ from peft import PeftModel
 setup_logger()
 
 def se_pipe_across_tokens(question, seq_tokens, ellm, mode = 'adapted'): 
-    cluster_ids_across_steps, cluster_weights_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, mode=mode)
-    print('weights ----------', cluster_weights_across_steps)
+    cluster_ids_across_steps, topic_ids_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, mode=mode)
     entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete') 
     entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'subsequ')  
-    entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete', weights = cluster_weights_across_steps) 
-    entropies_to_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'subsequ', weights = cluster_weights_across_steps)    
+    entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete', topics = topic_ids_across_steps) 
+    entropies_to_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'subsequ', topics = topic_ids_across_steps)    
   
     return entropies_ss, entropies_to, entropies_ss_weighted, entropies_to_weighted # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
 
 
 def se_pipe_across_words(question, seq_words, ellm, mode = 'adapted'):   
-    cluster_ids_across_steps, cluster_weights_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_words, question = question, ellm=ellm, mode=mode)
-    print('weights ----------', cluster_weights_across_steps)
+    cluster_ids_across_steps, topic_ids_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_words, question = question, ellm=ellm, mode=mode)
     entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete') 
     entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'subsequ')
-    entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete', weights = cluster_weights_across_steps) 
-    entropies_to_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'subsequ', weights = cluster_weights_across_steps)    
+    entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete', topics = topic_ids_across_steps) 
+    entropies_to_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'subsequ', topics = topic_ids_across_steps)    
     return entropies_ss, entropies_to, entropies_ss_weighted, entropies_to_weighted # {'gen_text' : generated_text, 'entropies' : entropies, 'gen_ids' : gen_ids, 'true_answer' : example['answer']}#['aliases']}
 
 
@@ -480,7 +478,7 @@ def main(args):
     if model_id != ellm_model_id:
         del ellm
     del llm
-    save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2.pkl')
+    save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_new_se.pkl')
         
 if __name__ == '__main__':
     parser = get_parser()
