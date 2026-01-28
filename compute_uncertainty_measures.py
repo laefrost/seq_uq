@@ -26,6 +26,7 @@ setup_logger()
 
 def se_pipe_across_tokens(question, seq_tokens, ellm, mode = 'adapted'): 
     cluster_ids_across_steps, topic_ids_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, mode=mode)
+    print("Topic IDs: ", topic_ids_across_steps)
     entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete') 
     entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'subsequ')  
     entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, mode = 'complete', topics = topic_ids_across_steps) 
@@ -36,6 +37,7 @@ def se_pipe_across_tokens(question, seq_tokens, ellm, mode = 'adapted'):
 
 def se_pipe_across_words(question, seq_words, ellm, mode = 'adapted'):   
     cluster_ids_across_steps, topic_ids_across_steps = generate_semantic_subsequence_ids(seq_tokens=seq_words, question = question, ellm=ellm, mode=mode)
+    print("Topic IDs: ", topic_ids_across_steps)
     entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete') 
     entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'subsequ')
     entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, mode = 'complete', topics = topic_ids_across_steps) 

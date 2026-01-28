@@ -47,8 +47,15 @@ def get_semantic_ids(strings_list, model, strict_entailment=False, example=None,
     return semantic_set_ids
 
 def predictive_entropy_per_topic(semantic_ids, topic_ids, probs): 
+    topic_ids = np.asarray(topic_ids)
+    semantic_ids = np.asarray(semantic_ids)
+    probs = np.asarray(probs)
     unique_topic_ids = set(topic_ids)
     entropies_per_topic = []
+    print("Unique topic ids: ", unique_topic_ids, topic_ids)
+    print("type(probs):", type(probs))
+    print("np.shape(probs):", np.shape(probs))
+    print("probs:", probs)
     for topic_id in unique_topic_ids: 
         # get the entries from the clusters
         relevant_entries = np.where(topic_ids == topic_id)[0]
@@ -110,8 +117,10 @@ def predictive_entropy_rao(probs, weights = None):
     return entropy
 
 def predictive_cond_entropy(topics, pred_entropies_per_topic):
-    freqs = [(value, topics.count(value) / len(topics)) for value in set(topics)] 
-    cond_entropy = np.sum(freqs * pred_entropies_per_topic)
+    unique_topic_ids, counts = np.unique(topics, return_counts=True)
+    freqs = counts / counts.sum()   # P(topic)
+    entropy_vec = np.array(pred_entropies_per_topic, dtype=float)
+    cond_entropy = np.sum(freqs * entropy_vec)
     return cond_entropy
 
 def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 'complete', topics = None): 
@@ -126,8 +135,8 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 
                 probs_step = probs['alternative_token_probs']
             semantic_ids = ids['cluster_ids']
             topic_ids = topic['topic_ids']
-            pe_topics = predictive_entropy_per_topic(semantic_ids, topic_ids, probs)
-            cond_pe = predictive_cond_entropy(topics, pe_topics)
+            pe_topics = predictive_entropy_per_topic(semantic_ids, topic_ids, probs_step)
+            cond_pe = predictive_cond_entropy(topic_ids, pe_topics)
             entropies.append(cond_pe)
     else: 
         for ids, probs in zip(cluster_ids_across_steps, seq_tokens): 
@@ -167,6 +176,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
         print('s----------------------', s, len(decoded_seqs))
         if len(set_step) == 1: 
             cluster_ids = [0] * len(decoded_seqs)
+            topic_ids = [0] * len(decoded_seqs)
             # cluster_weights = [1]
         else:  
             # print(decoded_seqs)   
