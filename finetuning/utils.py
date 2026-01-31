@@ -17,6 +17,11 @@ from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
 from torch import nn, Tensor
 from typing import Iterable, Dict
 
+from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+import numpy as np
+from scipy.stats import spearmanr, pearsonr
+from sklearn.metrics import accuracy_score, f1_score, classification_report
+
 logging.basicConfig(
     format="%(asctime)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -255,9 +260,7 @@ class DeltaEvaluator(EmbeddingSimilarityEvaluator):
         logger.info(f"  Overall Accuracy: {overall_acc:.3f}")
         
         return pearson
-    
-    
-# decay_pooling.py
+
 
 import torch
 from sentence_transformers.models import Module
