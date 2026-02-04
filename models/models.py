@@ -138,8 +138,8 @@ class LLM():
             else: return generated_text
         
     def generate_with_topk(self, prompt: str, k: int = 25, max_new_tokens: int = 128, temperature: float = 0.7, top_p: float = 0.9, do_sample: bool = True, seed: int | None = 42,):
-        if seed is not None:
-            set_seed(seed)
+        # if seed is not None:
+        #     set_seed(seed)
 
         generated_text, gen_ids, out = self.predict(prompt=prompt, temperature=temperature, return_all=True)
         #print('generated text: ', generated_text)

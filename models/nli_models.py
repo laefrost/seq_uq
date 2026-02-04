@@ -37,19 +37,19 @@ class NLI():
         labels = []
         
         for result in outputs:
-            print("in nli ----------------------------------")
-            print(result)
+            #print("in nli ----------------------------------")
+            #print(result)
             score, label = 0, ''
             contr_score = 0
             for label_score in result:
-                print(f"{label_score['label']}: {label_score['score']:.4f}")
+                #print(f"{label_score['label']}: {label_score['score']:.4f}")
                 if label_score['label'].lower() == 'contradiction':
                     contr_score = label_score['score']
                 if score < label_score['score']: 
                     label = label_score['label'].lower()
                     score = label_score['score']
             # result_scores = {item["label"].lower(): item["score"] for item in result}
-            print('predicted label: ', label, "predicted prob:", score)
+            # print('predicted label: ', label, "predicted prob:", score)
             # max_score = max(result_scores, key=result_scores.get)
             # label = result['label'].lower()
             # score = result['score']

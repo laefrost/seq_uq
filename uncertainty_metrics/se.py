@@ -53,8 +53,7 @@ def predictive_entropy_per_topic(semantic_ids, topic_ids, probs):
     unique_topic_ids = set(topic_ids)
     entropies_per_topic = []
     print("Unique topic ids: ", unique_topic_ids, topic_ids)
-    print("type(probs):", type(probs))
-    print("np.shape(probs):", np.shape(probs))
+    print("Semantic topic ids: ", semantic_ids)
     print("probs:", probs)
     for topic_id in unique_topic_ids: 
         # get the entries from the clusters
@@ -72,7 +71,12 @@ def predictive_entropy_per_topic(semantic_ids, topic_ids, probs):
             prob_norm = sum_token_prob / sum_topic_probs
             probs_per_semantic_id.append(prob_norm)
 
+        print("normalized probs ", prob_norm)
+        print("probs across clusters in topic: ", probs_per_semantic_id)
+        # assert np.sum(probs_per_semantic_id) == 1
+        
         cond_se = predictive_entropy_rao(probs_per_semantic_id)
+        assert cond_se >= 0
         entropies_per_topic.append(cond_se)
         
     return entropies_per_topic
@@ -107,13 +111,8 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
 
     return probs_per_semantic_id
 
-def predictive_entropy_rao(probs, weights = None):
-    if weights is None:
-        entropy = - np.sum(probs * np.log(probs))
-    else: 
-        weights = np.array(weights)
-        probs = np.array(probs)
-        entropy = - np.sum(weights * probs * np.log(probs))
+def predictive_entropy_rao(probs):
+    entropy = - np.sum(probs * np.log(probs))
     return entropy
 
 def predictive_cond_entropy(topics, pred_entropies_per_topic):
@@ -136,6 +135,7 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 
             semantic_ids = ids['cluster_ids']
             topic_ids = topic['topic_ids']
             pe_topics = predictive_entropy_per_topic(semantic_ids, topic_ids, probs_step)
+            print('pe per topic: ', pe_topics)
             cond_pe = predictive_cond_entropy(topic_ids, pe_topics)
             entropies.append(cond_pe)
     else: 
@@ -168,6 +168,8 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
     #         print('alternative_sequence_decoded ', decoded_seqs)
     #         cluster_ids = get_semantic_ids(strings_list=decoded_seqs, model = ellm, example=question, mode=mode)
     #     cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
+    
+    
     print('------------------------------------- Sequence Length : ', len(seq_tokens))
     
     for s, step in enumerate(seq_tokens): 
@@ -236,14 +238,23 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             pair_to_idx = {}  # Map (string1, string2) -> index in batched_pairs
             pair_mappings = []  # List of (i, j, score_idx) for matrix population
             
+            score_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), np.nan)
+            entailment_score = 1 if mode == 'data' else 2 
+            contradiction_score = 0
+            neutral_score = 1
+            np.fill_diagonal(score_matrix, entailment_score)
+
+            
             for i, string1 in enumerate(decoded_seqs):
                 for j in range(i+1, len(decoded_seqs)):
                     string2 = decoded_seqs[j]
-                    
-                    # Skip identical or substring pairs
-                    if string1 == string2 or string1 in string2 or string2 in string1:
+                    if string1 == string2:
+                        score_matrix[i, j], score_matrix[j, i] = entailment_score, entailment_score
                         continue
-                    
+                    elif string1 in string2 or string2 in string1:
+                        score_matrix[i, j], score_matrix[j, i] = neutral_score, neutral_score
+                        continue
+
                     # Check if we've already seen this pair
                     pair_key = (string1, string2)
                     reverse_pair_key = (string2, string1)
@@ -259,51 +270,112 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                         pair_to_idx[pair_key] = score_idx
                     
                     pair_mappings.append((i, j, score_idx))
-                    #print(string1)
-                    #print(string2)
             
             # Get scores for unique pairs only
             all_scores = []
-            contr_probs = []
             
             for b in range(0, len(batched_pairs), MAX_BATCH):
                 sub = batched_pairs[b:b+MAX_BATCH]
                 scores, contr_prob = ellm.check_implication_batch(sub, question, mode)
                 all_scores.extend(scores)
-                contr_probs.extend(contr_prob)
-            
-            # Populate score matrix
-            # print('Number of scores:', len(all_scores), scores)
-            # print(pair_mappings)
-            score_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), np.nan)
-            contr_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), 0)
             
             for i, j, score_idx in pair_mappings:
                 score = all_scores[score_idx]
-                prob = contr_probs[score_idx]
                 score_matrix[i, j] = score
                 score_matrix[j, i] = score
-                
-                contr_matrix[i, j] = prob
-                contr_matrix[j, i] = prob
-                
             
-            entailment_score = 1 if mode == 'data' else 2 
-            score_matrix = np.nan_to_num(score_matrix, nan=entailment_score)
-            contr_matrix = np.nan_to_num(contr_matrix, nan=0)
-            #print(score_matrix)  
-            #print(contr_matrix)     
+            print("Score Matirx Before ")
+            print(score_matrix)
+            assert not np.isnan(score_matrix).any()
             
-            print("scores ", all_scores)
-            print("contr probs ", contr_probs)
+            reachables = list()
+            n = len(decoded_seqs)
+            
+            # for i in range(n): 
+            #     row = score_matrix[i]
+            #     reachables.append(np.where(row == entailment_score)[0])
+            
+            # print(reachables)
+            
+            # for reachable in reachables:
+            #     print("reachable", reachable)
+            #     for r in reachable: 
+            #         connections = reachables[r]
+            #         print('connections', connections)
+            #         for c in connections: 
+            #             if c not in reachable: 
+            #                 if score_matrix[r,c] == 1: 
+            #                     score_matrix[c, r] = 2
+            #                     score_matrix[r, c] = 2
+            #                 elif score_matrix[r,c] == 2: 
+            #                     connections_tmp = connections[connections != c]
+            #                     reachable_tmp = reachable[reachable != r]
+            #                     score_matrix[r, connections_tmp] = 1
+            #                     score_matrix[c, reachable_tmp] = 1
+            
+
+            def enforce_transitive_closure(score_matrix):
+                n = score_matrix.shape[0]
+                
+                # Keep iterating until no changes are made
+                changed = True
+                iterations = 0
+                max_iterations = 100
+                
+                while changed and iterations < max_iterations:
+                    changed = False
+                    iterations += 1
+                    
+                    for i in range(n):
+                        for j in range(n):
+                            if i == j:
+                                continue
+                                
+                            rel_ij = score_matrix[i, j]
+                            if rel_ij == 1:  # neutral, skip
+                                continue
+                            
+                            for k in range(n):
+                                if k == i or k == j:
+                                    continue
+                                
+                                rel_jk = score_matrix[j, k]
+                                if rel_jk == 1:  # neutral, skip
+                                    continue
+                                
+                                # Calculate what i->k should be based on transitivity
+                                if rel_ij == 2 and rel_jk == 2:
+                                    expected = 2  # entails + entails = entails
+                                elif rel_ij == 2 and rel_jk == 0:
+                                    expected = 0  # entails + contradicts = contradicts
+                                elif rel_ij == 0 and rel_jk == 2:
+                                    expected = 0  # contradicts + entails = contradicts
+                                elif rel_ij == 0 and rel_jk == 0:
+                                    expected = 0  # contradicts + contradicts = contradicts
+                                else:
+                                    continue
+                                
+                                # ONLY update if currently neutral (1)
+                                if score_matrix[i, k] == 1:
+                                    score_matrix[i, k] = expected
+                                    score_matrix[k, i] = expected
+                                    changed = True
+                                # If there's a conflict, we could log it or handle it
+                                # but for now, trust the existing value
+                
+                return score_matrix
+
+            # Apply
+            score_matrix = enforce_transitive_closure(score_matrix)
+                            
+            print("Score Matirx After ")
+            print(score_matrix)
             
             cluster_ids = [-1] * len(decoded_seqs)
             topic_ids = [-1] * len(decoded_seqs)
-            #cluster_weights = []
             next_id = 0
             next_topic_id = 0
-            #neutral_placeholder = 1000
-            print('cluster_ids: ', cluster_ids)
+            
             for i, string1 in enumerate(decoded_seqs):
                 # Check if string1 already has an id assigned.
                 if cluster_ids[i] == -1:
@@ -322,15 +394,32 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                         if score_matrix[i, j] in [2]:
                             cluster_ids[j] = next_id
                     next_id += 1
+                    # cluster_ids[i] = next_id
+                    # cluster_members = [i]
+
+                    # # Versuche weitere Elemente hinzuzufügen
+                    # for j in range(i + 1, n):
+                    #     if cluster_ids[j] != -1:
+                    #         continue
+
+                    #     # j darf nur rein, wenn es zu ALLEN bisherigen Mitgliedern entailment hat
+                    #     ok = True
+                    #     for u in cluster_members:
+                    #         if score_matrix[u, j] != entailment_score and score_matrix[j, u] != entailment_score:
+                    #             ok = False
+                    #             break
+
+                    #     if ok:
+                    #         cluster_ids[j] = next_id
+                    #         cluster_members.append(j)
+                    # next_id += 1
                 
                 if topic_ids[i] == -1: 
                     topic_ids[i] = next_topic_id
                     for j in range(i+1, len(decoded_seqs)):
-                        if score_matrix[i, j] in [0, 2]:
+                        if topic_ids[j] == -1 and score_matrix[i, j] in [contradiction_score, entailment_score]:
                             topic_ids[j] = next_topic_id
-                    next_topic_id += 1
-                    
-                    
+                    next_topic_id += 1     
 
             assert -1 not in cluster_ids
             assert -1 not in topic_ids

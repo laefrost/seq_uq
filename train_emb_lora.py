@@ -13,12 +13,12 @@ from sentence_transformers import (
     InputExample,
 )
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-from sentence_transformers.losses import CosineSimilarityLoss, CoSENTLoss, AnglELoss
+from sentence_transformers.losses import CosineSimilarityLoss, CoSENTLoss, AnglELoss, MSELoss
 import torch
 from torch import nn, Tensor
 from typing import Iterable, Dict
 import numpy as np
-from finetuning.utils import WeightedCosineSimilarityLoss, CustomEvaluator, DeltaCosineSimilarityLoss, DeltaEvaluator, DeltaCoSENTLoss
+from finetuning.utils import WeightedCosineSimilarityLoss, CustomEvaluator, DeltaCosineSimilarityLoss, DeltaEvaluator, DeltaCoSENTLoss, EuclideanDistanceLoss
 
 # Set the log level to INFO
 logging.basicConfig(
@@ -33,7 +33,76 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def load_and_clean_data(train_path: str, val_path: str, approach = 'og'):
+def load_and_clean_data_rbf(train_path: str, val_path: str, approach = 'og'):
+    """Load and clean training and validation data from Excel files."""
+    logger.info(f"Loading data from {train_path} and {val_path}")
+    
+    train_df = pd.read_excel(train_path)
+    val_df = pd.read_excel(val_path)
+    
+    # Log data info before cleaning
+    logger.info(f"Train data shape: {train_df.shape}, Val data shape: {val_df.shape}")
+    logger.info(f"Train columns: {train_df.columns.tolist()}")
+    
+    # Clean NaN values
+    for df in [train_df, val_df]:
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].fillna('').astype(str)
+            else:
+                df[col] = df[col].fillna(0)
+    
+    # Validate required columns
+    # required_cols = ['sentence1', 'sentence2', 'label']
+    #for col in required_cols:
+    #    if col not in train_df.columns:
+    #        raise ValueError(f"Missing required column: {col}")
+    
+    # CRITICAL: Format data correctly for CosineSimilarityLoss
+    # The dataset must have columns: sentence1, sentence2, score (not label)
+    # Rename 'label' to 'score' if needed
+    if 'score' in train_df.columns and 'label' not in train_df.columns:
+        train_df = train_df.rename(columns={'score': 'label'})        
+        
+    if 'score' in val_df.columns and 'label' not in val_df.columns:
+        val_df = val_df.rename(columns={'score': 'label'})
+    
+    # Ensure score is float type
+    train_df['label'] = train_df['label'].astype(float)
+    val_df['label'] = val_df['label'].astype(float)
+    
+    # Log sample data to verify format
+    logger.info(f"Sample train data:\n{train_df.head(2)}")
+    logger.info(f"Score range - Train: [{train_df['label'].min()}, {train_df['label'].max()}]")
+    logger.info(f"Score range - Val: [{val_df['label'].min()}, {val_df['label'].max()}]")
+    
+    # Convert to datasets - keep only required columns
+    if approach == "emb": 
+        train_dataset = Dataset.from_pandas(
+            train_df[['sentence1', 'sentence2', 'label']], 
+            preserve_index=False
+        )
+        eval_dataset = Dataset.from_pandas(
+            val_df[['sentence1', 'sentence2', 'label']], 
+            preserve_index=False
+        )
+    else: 
+        train_dataset = Dataset.from_pandas(
+            train_df[['prefix', 'sentence1', 'sentence2', 'label']],
+            preserve_index=False
+        )
+        eval_dataset = Dataset.from_pandas(
+            val_df[['prefix', 'sentence1', 'sentence2', 'label']], 
+            preserve_index=False
+        )
+    
+    logger.info(f"Loaded {len(train_dataset)} training samples and {len(eval_dataset)} validation samples")
+    logger.info(f"Train dataset features: {train_dataset.features}")
+    
+    return train_dataset, eval_dataset
+
+
+def load_and_clean_data_cosine(train_path: str, val_path: str, approach = 'og', kernel_task = 'og'):
     """Load and clean training and validation data from Excel files."""
     logger.info(f"Loading data from {train_path} and {val_path}")
     
@@ -70,6 +139,13 @@ def load_and_clean_data(train_path: str, val_path: str, approach = 'og'):
     # Ensure score is float type
     train_df['score'] = train_df['score'].astype(float)
     val_df['score'] = val_df['score'].astype(float)
+    
+    if kernel_task == "claim": 
+        train_df['score'] = np.where(train_df['score'].isin([1, -1]), 1, -1)
+        val_df['score'] = np.where(val_df['score'].isin([1, -1]), 1, -1)
+    elif kernel_task == "cluster": 
+        train_df = train_df.loc[train_df["score"] != 0]
+        val_df = val_df.loc[val_df["score"] != 0]     
     
     # Log sample data to verify format
     logger.info(f"Sample train data:\n{train_df.head(2)}")
@@ -125,6 +201,7 @@ def setup_model(model_name: str, use_lora: bool = True):
             r=64,
             lora_alpha=128,
             lora_dropout=0.1,
+            #target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
             target_modules=["query", "key", "value"],  # Specify target modules
         )
         model.add_adapter(peft_config)
@@ -171,20 +248,26 @@ def main():
     """Main training pipeline."""
     try:
         # Configuration
-        model_name = 'sentence-transformers/all-MiniLM-L6-v2'
+        model_name = 'sentence-transformers/all-MiniLM-L6-v2' #'Qwen/Qwen3-Embedding-0.6B' #
         #train_path = 'finetuning/prefix_train_data_pt2.xlsx'
         #val_path = 'finetuning/prefix_val_data.xlsx'
         train_path = 'finetuning/train_final.xlsx'
         val_path = 'finetuning/val.xlsx'
         
         
-        num_epochs = 25 
-        batch_size = 32
+        num_epochs = 25
+        batch_size = 128
         use_lora = True
-        loss_type = "cosent" 
+        loss_type = "mse" 
         approach = 'emb'
+        objective = "rbf"
+        kernel_task = "og"
+        
         # Load data
-        train_dataset, eval_dataset = load_and_clean_data(train_path, val_path, approach)
+        if objective == 'cosine':
+            train_dataset, eval_dataset = load_and_clean_data_cosine(train_path, val_path, approach, kernel_task)
+        elif objective == 'rbf': 
+            train_dataset, eval_dataset = load_and_clean_data_rbf(train_path, val_path, approach)
         
         # Setup model
         model, model_name_only = setup_model(model_name, use_lora=use_lora)
@@ -200,6 +283,9 @@ def main():
             elif loss_type == "cosent": 
                 loss = CoSENTLoss(model)
                 logger.info("Using Cosent loss")
+            elif loss_type == "mse": 
+                loss = EuclideanDistanceLoss(model)
+                logger.info("Using Euc. loss")
             else:
                 loss = CosineSimilarityLoss(model)
                 logger.info("Using standard CosineSimilarityLoss")
@@ -215,11 +301,18 @@ def main():
             #     name="sts_dev",
             # )
             
-            dev_evaluator = CustomEvaluator(
+            # dev_evaluator = CustomEvaluator(
+            #     sentences1=eval_dataset["sentence1"],
+            #     sentences2=eval_dataset["sentence2"],
+            #     scores=eval_dataset["score"],
+            #     name="custom",
+            # )
+            
+            dev_evaluator = EmbeddingSimilarityEvaluator(
                 sentences1=eval_dataset["sentence1"],
                 sentences2=eval_dataset["sentence2"],
-                scores=eval_dataset["score"],
-                name="custom",
+                scores=eval_dataset["label"],
+                name="sts_dev",
             )
         else:
             if loss_type == "cosent": 
@@ -244,7 +337,7 @@ def main():
         logger.info(f"Base model score: {base_score}")
         
         # Setup training arguments
-        run_name = f"{model_name_only}-peft" if use_lora else model_name_only
+        run_name = f"{model_name_only}-peft-25" if use_lora else model_name_only
         args = create_training_args(run_name, num_epochs, batch_size)
         
         # Create trainer
@@ -269,7 +362,7 @@ def main():
         logger.info(f"Final model score: {final_score}")
         
         # Save model
-        final_output_dir = f"models_peft_emb_cosent_teeeeest/{run_name}/final"
+        final_output_dir = f"models_peft_emb_rbf/{run_name}/final"
         Path(final_output_dir).parent.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(final_output_dir)
         logger.info(f"Model saved to {final_output_dir}")

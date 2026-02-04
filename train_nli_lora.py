@@ -151,10 +151,10 @@ def main():
     train_path = "finetuning/train_final.xlsx"
     val_path = "finetuning/val.xlsx"
 
-    output_dir = "models/deberta-large-mnli-lora"
+    output_dir = "models_peft/deberta-large-mnli-lora"
     final_dir = str(Path(output_dir) / "final")
 
-    num_epochs = 3
+    num_epochs = 5
     train_bs = 8
     eval_bs = 8
     lr = 2e-4

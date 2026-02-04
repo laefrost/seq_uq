@@ -34,6 +34,33 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+class EuclideanDistanceLoss(nn.Module):
+    """
+    Loss that optimizes Euclidean distances between embeddings.
+    Assumes labels are normalized distance scores [0, 1] or similarity scores.
+    """
+    def __init__(self, model: SentenceTransformer, similarity_to_distance: bool = True):
+        super(EuclideanDistanceLoss, self).__init__()
+        self.model = model
+        self.similarity_to_distance = similarity_to_distance
+        self.mse_loss = nn.MSELoss()
+    
+    def forward(self, sentence_features: Iterable[Dict[str, Tensor]], labels: Tensor):
+        # Get embeddings
+        embeddings_a = self.model(sentence_features[0])['sentence_embedding']
+        embeddings_b = self.model(sentence_features[1])['sentence_embedding']
+        
+        # Compute Euclidean distance
+        euclidean_dist = torch.sqrt(torch.sum((embeddings_a - embeddings_b) ** 2, dim=1) + 1e-8)
+        
+        # Convert similarity to distance if needed
+        if self.similarity_to_distance:
+            # Assuming labels are similarities [0, 1], convert to distances
+            target_distances = 1.0 - labels.view(-1)
+        else:
+            target_distances = labels.view(-1)
+        
+        return self.mse_loss(euclidean_dist, target_distances)
 
 class WeightedCosineSimilarityLoss(nn.Module):
     """
