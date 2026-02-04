@@ -60,7 +60,8 @@ def get_parser():
     parser.add_argument(
         "--fact_model_name", type=str, default="ChatGPT", help="Model name of fact score model", choices=["retrieval+llama", "retrieval+llama+npm", "retrieval+ChatGPT", "npm", 
                               "retrieval+ChatGPT+npm", "ChatGPT", "gpt-oss", "retrieval+gpt-oss-20b", 
-                              "hf-inf", "retrieval+hf-inf"],
+                              "hf-inf", "retrieval+hf-inf", "gpt-4o-mini", "gpt-5-mini",
+                              "retrieval+gpt-4o-mini", "retrieval+gpt-5-mini"],
     )
     
     parser.add_argument(

@@ -37,7 +37,7 @@ def main(args):
 
     nlp = spacy.load("en_core_web_sm")
     generations = load(f'results_final/{exp_name}_{ds_name}_generations.pkl')
-    uqs = load(f'results_final/{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_15.pkl')
+    uqs = load(f'results_final/{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_cosent.pkl')
     logging.info('Answers loaded!')
     
     metric = get_metric(args.metric)
@@ -54,6 +54,7 @@ def main(args):
         fs = FactScorer(model_name= fact_model_name)
         
         generated_answers = []
+        generated_words, generated_tokens = [], []
         topics = []
         questions = []
         atomic_facts = []
@@ -63,8 +64,7 @@ def main(args):
         sem_rels_words = []
         sem_rels_tokens = []
         counter = 0
-        generations = generations[0:3]
-        uqs = uqs[0:3]
+
         assert len(generations) == len(uqs)
         for gen, u in zip(generations, uqs):
             counter += 1 
@@ -72,10 +72,15 @@ def main(args):
             #gen_words = u['gen_words']
             #gen_tokens = gen['gen_tokens']
             generated_answers.append(gen['generated_text'])
-            topics.append(gen['topic'])
+            if gen['topic'] is None:
+                topics.append(gen['example']['question'])
+            else: 
+                topics.append(gen['topic'])
             questions.append(gen['example']['question'])
             atomic_facts.append([gen['generated_text']])
-
+            generated_tokens.append(gen['gen_tokens'])
+            generated_words.append(u['gen_words'])
+            
             doc = nlp(gen['generated_text'])
             role_words = [token.dep_ for token in doc]
             roles_words.append(role_words)
@@ -97,15 +102,18 @@ def main(args):
             sem_rel_tokens =['tmp_value']
             sem_rels_tokens.append(sem_rel_tokens)
         
-        if task_type != 'qa': atomic_facts = None
+        atomic_facts = None
         result = fs.get_score(topics=topics,
                        generations=generated_answers,
                        true_answers = None, 
                        questions = None, 
                        atomic_facts=atomic_facts,
+                       # knowledge source 
                        knowledge_source=None,
                        verbose=True, 
-                       do_matching=False)
+                       do_matching=False,
+                       gen_tokens = gen_tokens, 
+                       gen_words = gen_words)
         
         
         assert len(result['decisions']) == len(generations)
@@ -118,8 +126,6 @@ def main(args):
             d_list = []
             print(decision)
             for d in decision: 
-                
-                
                 # TODO: gen_words this needs to be different (probably based on tokenizer as in subsequences)
                 
                 #pattern = r"\(|\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|</s>|'|\"|`|´|-"
@@ -212,7 +218,7 @@ def main(args):
     #                 'acc_facts' : acc_facts
     #                 })
     
-    save(eval_results, f'{exp_name}_{ds_name}_evals_test.pkl')
+    save(eval_results, f'{exp_name}_{ds_name}_evals_factwise.pkl')
     logging.info('Run complete.')
     del llm_eval
 
