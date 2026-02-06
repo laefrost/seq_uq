@@ -19,6 +19,7 @@ from torch import nn, Tensor
 from typing import Iterable, Dict
 import numpy as np
 from finetuning.utils import WeightedCosineSimilarityLoss, CustomEvaluator, DeltaCosineSimilarityLoss, DeltaEvaluator, DeltaCoSENTLoss, EuclideanDistanceLoss
+from finetuning.models import create_model_with_weighted_pooling
 
 # Set the log level to INFO
 logging.basicConfig(
@@ -178,20 +179,24 @@ def load_and_clean_data_cosine(train_path: str, val_path: str, approach = 'og', 
     return train_dataset, eval_dataset
 
 
-def setup_model(model_name: str, use_lora: bool = True):
+def setup_model(model_name: str, use_lora: bool = True, use_weighted_approach = False, pooling_mode = 'exponential'):
     """Initialize the sentence transformer model with optional LoRA adapter."""
     logger.info(f"Loading model: {model_name}")
     
     model_name_only = model_name.split("/")[-1]
     
-    model = SentenceTransformer(
-        model_name,
-        model_card_data=SentenceTransformerModelCardData(
-            language="en",
-            license="apache-2.0",
-            model_name=f"{model_name_only} finetuned adapter",
-        ),
-    )
+    if use_weighted_approach: 
+        logger.info(f"Using weighted pooling approach (mode: {pooling_mode})")
+        model = create_model_with_weighted_pooling(model_name = model_name, pooling_mode = pooling_mode)
+    else: 
+        model = SentenceTransformer(
+            model_name,
+            model_card_data=SentenceTransformerModelCardData(
+                language="en",
+                license="apache-2.0",
+                model_name=f"{model_name_only} finetuned adapter",
+            ),
+        )
     
     if use_lora:
         logger.info("Adding LoRA adapter to model")
@@ -255,13 +260,14 @@ def main():
         val_path = 'finetuning/val.xlsx'
         
         
-        num_epochs = 25
+        num_epochs = 15
         batch_size = 128
         use_lora = True
         loss_type = "mse" 
         approach = 'emb'
         objective = "rbf"
         kernel_task = "og"
+        use_weighted_approach = True
         
         # Load data
         if objective == 'cosine':
@@ -270,7 +276,7 @@ def main():
             train_dataset, eval_dataset = load_and_clean_data_rbf(train_path, val_path, approach)
         
         # Setup model
-        model, model_name_only = setup_model(model_name, use_lora=use_lora)
+        model, model_name_only = setup_model(model_name, use_lora=use_lora, use_weighted_approach = use_weighted_approach)
         
         if approach == "emb": 
             if loss_type == "weighted":
@@ -337,7 +343,7 @@ def main():
         logger.info(f"Base model score: {base_score}")
         
         # Setup training arguments
-        run_name = f"{model_name_only}-peft-25" if use_lora else model_name_only
+        run_name = f"{model_name_only}-peft-weighted_lora" if use_lora else model_name_only
         args = create_training_args(run_name, num_epochs, batch_size)
         
         # Create trainer

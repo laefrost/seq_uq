@@ -36,8 +36,8 @@ def main(args):
     fact_model_name = args.fact_model_name
 
     nlp = spacy.load("en_core_web_sm")
-    generations = load(f'results_final/{exp_name}_{ds_name}_generations.pkl')
-    uqs = load(f'results_final/{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_cosent.pkl')
+    generations = load(f'{exp_name}_{ds_name}_generations.pkl')
+    uqs = load(f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_cosent.pkl')
     logging.info('Answers loaded!')
     
     metric = get_metric(args.metric)
@@ -112,8 +112,8 @@ def main(args):
                        knowledge_source=None,
                        verbose=True, 
                        do_matching=False,
-                       gen_tokens = gen_tokens, 
-                       gen_words = gen_words)
+                       gen_tokens = generated_tokens, 
+                       gen_words = generated_words)
         
         
         assert len(result['decisions']) == len(generations)
