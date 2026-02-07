@@ -15,6 +15,8 @@ from transformers import (
 from peft import LoraConfig, TaskType, get_peft_model
 import evaluate
 import torch
+from finetuning.models import WeightedLossTrainer
+from collections import Counter
 
 
 # ----------------------------
@@ -68,7 +70,20 @@ def make_labels(df: pd.DataFrame, col_candidates=("label", "score", "gold", "y")
 
     out = df.copy()
     out["labels"] = labels.astype(int)
-    return out
+    
+    label_counts = Counter(out["labels"])
+
+    # Sort by label index to ensure correct order
+    num_classes = len(label_counts)
+    counts = [label_counts[i] for i in range(num_classes)]
+
+    # Calculate inverse frequency weights
+    total = sum(counts)
+    class_weights = torch.tensor([total / count for count in counts])
+
+    print(f"Label counts: {counts}")
+    print(f"Class weights: {class_weights}")
+    return out, class_weights
 
 
 def load_excel(train_path: str, val_path: str):
@@ -94,8 +109,8 @@ def load_excel(train_path: str, val_path: str):
             )
 
     # Create integer labels for seq cls
-    train_df = make_labels(train_df)
-    val_df = make_labels(val_df)
+    train_df, class_weights_train = make_labels(train_df)
+    val_df, class_weights_val = make_labels(val_df)
 
     logger.info("Label distribution (train):")
     logger.info(train_df["labels"].value_counts().to_string())
@@ -105,7 +120,7 @@ def load_excel(train_path: str, val_path: str):
     train_ds = Dataset.from_pandas(train_df[["sentence1", "sentence2", "labels"]], preserve_index=False)
     val_ds = Dataset.from_pandas(val_df[["sentence1", "sentence2", "labels"]], preserve_index=False)
 
-    return train_ds, val_ds
+    return train_ds, val_ds, class_weights_train
 
 
 # ----------------------------
@@ -154,9 +169,9 @@ def main():
     output_dir = "models_peft/deberta-large-mnli-lora"
     final_dir = str(Path(output_dir) / "final")
 
-    num_epochs = 5
-    train_bs = 8
-    eval_bs = 8
+    num_epochs = 2
+    train_bs = 64
+    eval_bs = 64
     lr = 2e-4
     max_length = 512
 
@@ -165,7 +180,7 @@ def main():
     use_bf16 = False  # turn on later if supported
 
     # Load data
-    train_ds, val_ds = load_excel(train_path, val_path)
+    train_ds, val_ds, class_weights = load_excel(train_path, val_path)
 
     # Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
@@ -246,14 +261,15 @@ def main():
 
     )
 
-    trainer = Trainer(
+    trainer = WeightedLossTrainer(
         model=model,
         args=args,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
+        class_weights = class_weights,
+        optimizers = (None, None)
     )
 
     logger.info("Starting training...")

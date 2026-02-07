@@ -12,7 +12,7 @@ from models.nli_models import *
 from uncertainty_metrics.se import * 
 from uncertainty_metrics.pke import *
 from uncertainty_metrics.vne import *
-from uncertainty_metrics.rao import *
+from uncertainty_metrics.rao import rao_entropy, avg_conflict
 from utils.subsequences import generate_subsequences, remove_subsequences, generate_word_subsequences
 from sklearn.metrics.pairwise import cosine_distances, euclidean_distances, paired_cosine_distances, polynomial_kernel, cosine_similarity, laplacian_kernel
 from utils.utils import get_parser, construct_prompt, save, get_metric, setup_logger, load
@@ -82,13 +82,14 @@ def uq_pipe_across_tokens(seq_tokens, emb_model, emb_model_deltas, question, gen
         vne_tokens = vne(ems_token) #, kernel=lambda x, y: cosine_similarity(x, y))
         vne_add_combined = vne(Y = ems, Y2 = ems_token, combination_mode = "additive") #, kernel=lambda x, y: cosine_similarity(x, y))
         vne_multpl_combined = vne(ems, Y2 = ems_token, combination_mode = "multiplicative")
-        rao = rao(Y = ems, probs = s['alternative_token_probs'])
+        rao_emb = rao_entropy(Y = ems, probs = s['alternative_token_probs'])
         conflict = avg_conflict(Y = ems, probs = s['alternative_token_probs'])
         
         vnes_tokens.append(vne_tokens)
         vnes.append(vne_emb)
         vnes_add_combined.append(vne_add_combined)
         vnes_multpl_combined.append(vne_multpl_combined)
+        raos.append(rao_emb)
         conflicts.append(conflict)
         
     return vnes, vnes_tokens, vnes_add_combined, vnes_multpl_combined, ln_probs, raos, conflicts
@@ -133,9 +134,7 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas):
         alternative_sequences_deltas = emb_model_deltas.encode(alternative_sequences, normalize_embeddings = True)
         words_emb = emb_model_deltas.encode(words, normalize_embeddings = True)       
         delta_embs = previous_emb - alternative_sequences_deltas
-        delta_embs = delta_embs / (np.linalg.norm(delta_embs, axis=1, keepdims=True) + 1e-12)
-        mask_pos = None
-        
+        delta_embs = delta_embs / (np.linalg.norm(delta_embs, axis=1, keepdims=True) + 1e-12)        
         
         #if consider_types: 
             # go through sequences, do pos_tagging, select last word
@@ -149,8 +148,10 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas):
         # mask[i, j] = 1 if either i or j is PUNCT/SPACE, else 0
         # mask_pos = (special_mask[:, None] | special_mask[None, :]).astype(int)
         
+        print(mask_pos)
+        
         if len(alternative_sequences) == 1:
-            vne_emb, vne_ct, vne_word, vne_combined, rao = 0, 0, 0, 0, 0
+            vne_emb, vne_ct, vne_word, vne_combined, rao_emb, conflict, conflict_ct = 0, 0, 0, 0, 0, 0, 0
         else:
             vne_emb = vne(Y = alternative_sequences_emb, center = True)#, kernel=lambda x, y: cosine_similarity(x, y))
             vne_ct = vne(Y = alternative_sequences_emb, type_mask=mask_pos, center = True)#, kernel=lambda x, y: cosine_similarity(x, y))
@@ -158,16 +159,19 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas):
             vne_combined = vne(Y = alternative_sequences_emb, Y2 = words_emb, center = True, combination_mode = "multiplicative") #, kernel=lambda x, y: cosine_similarity(x, y)) #, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
             # vne_proj = vne(Y = alternative_sequences_emb, word_pos = word_pos, kernel=lambda x, y: cosine_similarity(x, y))
             vne_add =  vne(Y = alternative_sequences_emb, Y2 = words_emb, center = True, combination_mode = "additive")
-            rao = rao(Y = alternative_sequences_emb, probs = s['alternative_token_probs']) 
-            conflict = avg_conflict(Y = ems, probs = s['alternative_token_probs']) 
-            conflict_ct = avg_conflict(Y = ems, probs = s['alternative_token_probs'], type_mask = mask_pos) 
+            rao_emb = rao_entropy(Y = alternative_sequences_emb, probs = s['alternative_token_probs']) 
+            conflict = avg_conflict(Y = alternative_sequences_emb, probs = s['alternative_token_probs']) 
+            conflict_ct = avg_conflict(Y = alternative_sequences_emb, probs = s['alternative_token_probs'], type_mask = mask_pos) 
+            
+            if conflict_ct != conflict: 
+                print("Different conflicts: ", conflict, conflict_ct)
         
         vnes.append(vne_emb)
         vnes_ct.append(vne_ct)
         vnes_word.append(vne_word)
         vnes_combined.append(vne_combined)
         vnes_proj.append(vne_add)
-        raos.append(rao)
+        raos.append(rao_emb)
         conflicts.append(conflict)
         conflicts_ct.append(conflict_ct)
             
@@ -183,7 +187,7 @@ def main(args):
     ds_name = args.dataset
     consider_types = args.consider_types
     
-    generations = load(f'{exp_name}_{ds_name}_generations.pkl')
+    generations = load(f'results_final/{exp_name}_{ds_name}_generations.pkl')
     logging.info('Dataset loaded!')
     logging.info(type(generations))
     uqs = []    
@@ -235,27 +239,27 @@ def main(args):
                 ses_words = None
                 ses_tokens = None
         
-        try:
-            if emb_model_id != emb_model_id_deltas:
-                vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
-            else: 
-                vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, emb_model_deltas=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)     
-        except Exception as e:
-            logging.info(e)
-            print('error in 239')
-            print(e)
-            logging.info(e)
-            vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, ln_probs_token, raos_token, conflicts_token = None, None, None, None, None, None, None 
+        #try:
+        if emb_model_id != emb_model_id_deltas:
+            vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
+        else: 
+            vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens, emb_model=emb_model, emb_model_deltas=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)     
+    # except Exception as e:
+        #     logging.info(e)
+        #     print('error in 239')
+        #     print(e)
+        #     logging.info(e)
+        #     vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, ln_probs_token, raos_token, conflicts_token = None, None, None, None, None, None, None 
         
-        try:
-            if emb_model_id != emb_model_id_deltas:
-                vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = uq_pipe_across_words(seq_words, emb_model=emb_model, emb_model_deltas=emb_model_deltas)
-            else: 
-                vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, ln_probs_word, raos_word, conflicts_word; conflicts_word_ct = uq_pipe_across_words(seq_words, emb_model=emb_model, emb_model_deltas=emb_model)
-        except Exception as e:
-            print('error in 254')
-            print(e)
-            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = None, None, None, None, None, None, None, None, None
+        #try:
+        if emb_model_id != emb_model_id_deltas:
+            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = uq_pipe_across_words(seq_words, emb_model=emb_model, emb_model_deltas=emb_model_deltas)
+        else: 
+            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = uq_pipe_across_words(seq_words, emb_model=emb_model, emb_model_deltas=emb_model)
+    #except Exception as e:
+        #    print('error in 254')
+        #    print(e)
+        #    vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = None, None, None, None, None, None, None, None, None
         
         uqs.append({'question': example['question'], 
                     'gen_text' : element['generated_text'], 
@@ -293,7 +297,7 @@ def main(args):
     if model_id != ellm_model_id:
         del ellm
     del llm
-    save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_rbf-15.pkl')
+    save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_rbf-15-test.pkl')
         
 if __name__ == '__main__':
     parser = get_parser()

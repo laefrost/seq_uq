@@ -52,9 +52,9 @@ def predictive_entropy_per_topic(semantic_ids, topic_ids, probs):
     probs = np.asarray(probs)
     unique_topic_ids = set(topic_ids)
     entropies_per_topic = []
-    print("Unique topic ids: ", unique_topic_ids, topic_ids)
-    print("Semantic topic ids: ", semantic_ids)
-    print("probs:", probs)
+    #print("Unique topic ids: ", unique_topic_ids, topic_ids)
+    #print("Semantic topic ids: ", semantic_ids)
+    #print("probs:", probs)
     for topic_id in unique_topic_ids: 
         # get the entries from the clusters
         relevant_entries = np.where(topic_ids == topic_id)[0]
@@ -71,8 +71,8 @@ def predictive_entropy_per_topic(semantic_ids, topic_ids, probs):
             prob_norm = sum_token_prob / sum_topic_probs
             probs_per_semantic_id.append(prob_norm)
 
-        print("normalized probs ", prob_norm)
-        print("probs across clusters in topic: ", probs_per_semantic_id)
+        #print("normalized probs ", prob_norm)
+        #print("probs across clusters in topic: ", probs_per_semantic_id)
         # assert np.sum(probs_per_semantic_id) == 1
         
         cond_se = predictive_entropy_rao(probs_per_semantic_id)
@@ -135,7 +135,7 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 
             semantic_ids = ids['cluster_ids']
             topic_ids = topic['topic_ids']
             pe_topics = predictive_entropy_per_topic(semantic_ids, topic_ids, probs_step)
-            print('pe per topic: ', pe_topics)
+            #print('pe per topic: ', pe_topics)
             cond_pe = predictive_cond_entropy(topic_ids, pe_topics)
             entropies.append(cond_pe)
     else: 
@@ -170,12 +170,12 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
     #     cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
     
     
-    print('------------------------------------- Sequence Length : ', len(seq_tokens))
+    #print('------------------------------------- Sequence Length : ', len(seq_tokens))
     
     for s, step in enumerate(seq_tokens): 
         decoded_seqs = step.get('alternative_sequence_decoded', None) 
         set_step = set(tuple(sublist) for sublist in decoded_seqs)
-        print('s----------------------', s, len(decoded_seqs))
+        #print('s----------------------', s, len(decoded_seqs))
         if len(set_step) == 1: 
             cluster_ids = [0] * len(decoded_seqs)
             topic_ids = [0] * len(decoded_seqs)
@@ -284,8 +284,8 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                 score_matrix[i, j] = score
                 score_matrix[j, i] = score
             
-            print("Score Matirx Before ")
-            print(score_matrix)
+            #print("Score Matirx Before ")
+            #print(score_matrix)
             assert not np.isnan(score_matrix).any()
             
             reachables = list()
@@ -368,8 +368,8 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             # Apply
             score_matrix = enforce_transitive_closure(score_matrix)
                             
-            print("Score Matirx After ")
-            print(score_matrix)
+            #print("Score Matirx After ")
+            #print(score_matrix)
             
             cluster_ids = [-1] * len(decoded_seqs)
             topic_ids = [-1] * len(decoded_seqs)
@@ -423,8 +423,8 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
 
             assert -1 not in cluster_ids
             assert -1 not in topic_ids
-            print('cluster ids after: ', cluster_ids)
-            print('topic ids after: ', topic_ids)
+            #print('cluster ids after: ', cluster_ids)
+            #print('topic ids after: ', topic_ids)
             # cluster_ids = [next_id if x == neutral_placeholder else x for x in cluster_ids]
             # cluster_ids = np.array(cluster_ids)
             # unique_cids = np.unique(cluster_ids)

@@ -57,12 +57,12 @@ def build_Q(word_pos):
     
 #     return vne
 
-def gamma_median_heuristic(X, eps=1e-12):
-    D2 = pairwise_distances(X, metric="euclidean", squared=True)
-    # take upper triangle without diagonal
-    tri = D2[np.triu_indices_from(D2, k=1)]
-    med = np.median(tri[tri > 0])
-    return 1.0 / (2.0 * (med + eps))
+# def gamma_median_heuristic(X, eps=1e-12):
+#     D2 = pairwise_distances(X, metric="euclidean", squared=True)
+#     # take upper triangle without diagonal
+#     tri = D2[np.triu_indices_from(D2, k=1)]
+#     med = np.median(tri[tri > 0])
+#     return 1.0 / (2.0 * (med + eps))
     
     
 def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=None),
@@ -77,15 +77,15 @@ def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=None),
         else: 
             YY = 0.5 * YY + 0.5 * Y2Y2
 
-    if type_mask is not None:
-        YY = np.where(type_mask == 1, 1.0, YY)
-
     if word_pos is not None:
         Q = build_Q(word_pos)
         YY = Q @ YY @ Q
 
     if center:
         YY = KernelCenterer().fit_transform(YY)
+        
+    if type_mask is not None:
+        YY = np.where(type_mask == 1, 1.0, YY)
 
     tr = np.trace(YY)
     if tr <= eps:

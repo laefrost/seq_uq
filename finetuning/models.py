@@ -13,6 +13,31 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModel
 from sentence_transformers.models import Module
 
+import torch
+import torch.nn as nn
+from transformers import Trainer
+
+class WeightedLossTrainer(Trainer):
+    def __init__(self, model = None, args = None, data_collator = None, train_dataset = None, eval_dataset = None, processing_class = None, model_init = None, compute_loss_func = None, compute_metrics = None, callbacks = None, optimizers = (None, None), optimizer_cls_and_kwargs = None, preprocess_logits_for_metrics = None, class_weights = None ):
+        super().__init__(model, args, data_collator, train_dataset, eval_dataset, processing_class, model_init, compute_loss_func, compute_metrics, callbacks, optimizers, optimizer_cls_and_kwargs, preprocess_logits_for_metrics)
+        self.class_weights = class_weights 
+        
+        
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.logits
+
+        if self.class_weights is None: 
+            class_weights = torch.tensor([3.0, 1.0, 1.0]).to(logits.device)
+        else:
+            class_weights = self.class_weights.to(logits.device)
+        
+        loss_fct = nn.CrossEntropyLoss(weight=class_weights)
+        loss = loss_fct(logits, labels)
+        
+        return (loss, outputs) if return_outputs else loss
+
 
 class WeightedPooling(Module):
     """

@@ -20,6 +20,7 @@ from typing import Iterable, Dict
 import numpy as np
 from finetuning.utils import WeightedCosineSimilarityLoss, CustomEvaluator, DeltaCosineSimilarityLoss, DeltaEvaluator, DeltaCoSENTLoss, EuclideanDistanceLoss
 from finetuning.models import create_model_with_weighted_pooling
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 # Set the log level to INFO
 logging.basicConfig(
@@ -101,6 +102,28 @@ def load_and_clean_data_rbf(train_path: str, val_path: str, approach = 'og'):
     logger.info(f"Train dataset features: {train_dataset.features}")
     
     return train_dataset, eval_dataset
+
+from datasets import concatenate_datasets
+
+def oversample_contradictions(train_dataset, label_col="label", target_frac=0.2, seed=42):
+    # split
+    ds_c = train_dataset.filter(lambda x: x[label_col] == -1)
+    ds_o = train_dataset.filter(lambda x: x[label_col] != -1)
+
+    n_c = len(ds_c)
+    n_o = len(ds_o)
+    if n_c == 0:
+        return train_dataset.shuffle(seed=seed)
+
+    # Wie oft müssen wir ds_c duplizieren, um target_frac zu erreichen?
+    # target = (k*n_c) / (k*n_c + n_o)
+    # => k = target*n_o / (n_c*(1-target))
+    k = int((target_frac * n_o) / (n_c * (1 - target_frac)))
+    k = max(1, k)
+
+    ds_c_oversampled = concatenate_datasets([ds_c] * k)
+    ds_new = concatenate_datasets([ds_o, ds_c_oversampled]).shuffle(seed=seed)
+    return ds_new
 
 
 def load_and_clean_data_cosine(train_path: str, val_path: str, approach = 'og', kernel_task = 'og'):
@@ -260,20 +283,22 @@ def main():
         val_path = 'finetuning/val.xlsx'
         
         
-        num_epochs = 15
+        num_epochs = 7
         batch_size = 128
         use_lora = True
-        loss_type = "mse" 
+        loss_type = "cosent" 
         approach = 'emb'
-        objective = "rbf"
+        objective = "cosine"
         kernel_task = "og"
-        use_weighted_approach = True
+        use_weighted_approach = False
         
         # Load data
         if objective == 'cosine':
             train_dataset, eval_dataset = load_and_clean_data_cosine(train_path, val_path, approach, kernel_task)
+            train_dataset = oversample_contradictions(train_dataset, label_col="score", target_frac=0.4)
         elif objective == 'rbf': 
             train_dataset, eval_dataset = load_and_clean_data_rbf(train_path, val_path, approach)
+            train_dataset = oversample_contradictions(train_dataset, label_col="label", target_frac=0.4)
         
         # Setup model
         model, model_name_only = setup_model(model_name, use_lora=use_lora, use_weighted_approach = use_weighted_approach)
@@ -307,19 +332,19 @@ def main():
             #     name="sts_dev",
             # )
             
-            # dev_evaluator = CustomEvaluator(
-            #     sentences1=eval_dataset["sentence1"],
-            #     sentences2=eval_dataset["sentence2"],
-            #     scores=eval_dataset["score"],
-            #     name="custom",
-            # )
-            
-            dev_evaluator = EmbeddingSimilarityEvaluator(
+            dev_evaluator = CustomEvaluator(
                 sentences1=eval_dataset["sentence1"],
                 sentences2=eval_dataset["sentence2"],
-                scores=eval_dataset["label"],
-                name="sts_dev",
+                scores=eval_dataset["score"],
+                name="custom",
             )
+            
+            # dev_evaluator = EmbeddingSimilarityEvaluator(
+            #     sentences1=eval_dataset["sentence1"],
+            #     sentences2=eval_dataset["sentence2"],
+            #     scores=eval_dataset["label"],
+            #     name="sts_dev",
+            # )
         else:
             if loss_type == "cosent": 
                 loss = DeltaCoSENTLoss(model)
@@ -343,7 +368,7 @@ def main():
         logger.info(f"Base model score: {base_score}")
         
         # Setup training arguments
-        run_name = f"{model_name_only}-peft-weighted_lora" if use_lora else model_name_only
+        run_name = f"{model_name_only}-peft-weighted_lora-7" if use_lora else model_name_only
         args = create_training_args(run_name, num_epochs, batch_size)
         
         # Create trainer
@@ -368,7 +393,7 @@ def main():
         logger.info(f"Final model score: {final_score}")
         
         # Save model
-        final_output_dir = f"models_peft_emb_rbf/{run_name}/final"
+        final_output_dir = f"models_peft/{run_name}/final"
         Path(final_output_dir).parent.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(final_output_dir)
         logger.info(f"Model saved to {final_output_dir}")
