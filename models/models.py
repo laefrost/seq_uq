@@ -149,25 +149,29 @@ class LLM():
             logits = step_scores[0]                  
             probs = torch.softmax(logits, dim=-1)     
 
-            sampled_ids = torch.multinomial(probs, num_samples=k, replacement=True)
-            sampled = []
-            #print('sampled ids: ', sampled_ids)
-            current_probs = float(probs[gen_ids[step_idx]].item())
+            # # TODO Das wsl in die neue Mehtode
+            # sampled_ids = torch.multinomial(probs, num_samples=k, replacement=True)
+            # sampled = []
+            # #print('sampled ids: ', sampled_ids)
+            # current_probs = float(probs[gen_ids[step_idx]].item())
 
-            for tok_id in sampled_ids.tolist():
-                tok_str = self.tokenizer.decode([tok_id], skip_special_tokens=False)
-                sampled.append({
-                    "token_id": tok_id,
-                    "token_str": tok_str,
-                    "prob": float(probs[tok_id].item()),
-                })
+            
+            # TODO Das wsl in die neue Mehtode
+            # for tok_id in sampled_ids.tolist():
+            #     tok_str = self.tokenizer.decode([tok_id], skip_special_tokens=False)
+            #     sampled.append({
+            #         "token_id": tok_id,
+            #         "token_str": tok_str,
+            #         "prob": float(probs[tok_id].item()),
+            #     })
                 # if tok_id == gen_ids[step_idx]: 
                 #     current_probs = float(probs[tok_id].item())
             step_samples.append({'current_seq' : gen_ids[:step_idx+1],
                                  'prev_seq' : gen_ids[:step_idx],
                                  # 'current_seq_decoded' : self.tokenizer.decode(gen_ids[:step_idx], skip_special_tokens=True),
-                                 'current_prob' : current_probs, 
-                                 'sampled_tokens' : sampled})
+                                 # 'current_prob' : current_probs, 
+                                 #'sampled_tokens' : sampled, 
+                                 'logits' : logits.detach().cpu()})
 
         # gen_ids_decoded = []
         # for id in gen_ids:

@@ -65,37 +65,71 @@ def build_Q(word_pos):
 #     return 1.0 / (2.0 * (med + eps))
     
     
-def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=None),
-        type_mask=None, Y2=None, word_pos=None, center=True, eps=1e-10, combination_mode = None):
+# def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=None),
+#         type_mask=None, Y2=None, word_pos=None, center=True, eps=1e-10, combination_mode = None):
 
+#     YY = kernel(Y, Y).astype(np.float64)
+#     n = Y.shape[0]
+#     if Y2 is not None:
+#         Y2Y2 = kernel(Y2, Y2).astype(np.float64)
+#         if combination_mode == "multiplicative": 
+#             YY = YY * Y2Y2
+#         else: 
+#             YY = 0.5 * YY + 0.5 * Y2Y2
+
+#     if word_pos is not None:
+#         Q = build_Q(word_pos)
+#         YY = Q @ YY @ Q
+
+#     # if center:
+#     #     YY = KernelCenterer().fit_transform(YY)
+        
+#     if type_mask is not None:
+#         YY = np.where(type_mask == 1, 1.0, YY)
+
+#     # tr = np.trace(YY)
+#     # if tr <= eps:
+#     #     return 0.0
+
+#     # R = YY / tr
+#     YY = YY / n
+#     eigenvalues = np.linalg.eigvalsh(YY)
+#     eigenvalues = eigenvalues[eigenvalues > eps]
+#     if eigenvalues.size == 0:
+#         return 0.0
+
+#     # eigenvalues = eigenvalues / eigenvalues.sum()
+#     return float(-np.sum(eigenvalues * np.log(eigenvalues)))
+
+
+
+def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=None), type_mask = None, mode = 'sampling', probs = None, eps=1e-10, Y2 = None, combination_mode = "additive"): 
     YY = kernel(Y, Y).astype(np.float64)
-
+    n = Y.shape[0]
+    print("kernel shape: ", YY.shape)
     if Y2 is not None:
         Y2Y2 = kernel(Y2, Y2).astype(np.float64)
         if combination_mode == "multiplicative": 
             YY = YY * Y2Y2
         else: 
             YY = 0.5 * YY + 0.5 * Y2Y2
-
-    if word_pos is not None:
-        Q = build_Q(word_pos)
-        YY = Q @ YY @ Q
-
-    if center:
-        YY = KernelCenterer().fit_transform(YY)
-        
+    
     if type_mask is not None:
         YY = np.where(type_mask == 1, 1.0, YY)
+        
+    if mode == 'sampling': 
+        YY = YY / n
+        
+    else: 
+        YY = kernel(Y, Y).astype(np.float64)
+        D = np.diag(np.sqrt(probs))
+        YY = D @ YY @ D
 
-    tr = np.trace(YY)
-    if tr <= eps:
-        return 0.0
-
-    R = YY / tr
-    eigenvalues = np.linalg.eigvalsh(R)
+    
+    eigenvalues = np.linalg.eigvalsh(YY)
     eigenvalues = eigenvalues[eigenvalues > eps]
     if eigenvalues.size == 0:
         return 0.0
 
-    eigenvalues = eigenvalues / eigenvalues.sum()
+    # eigenvalues = eigenvalues / eigenvalues.sum()
     return float(-np.sum(eigenvalues * np.log(eigenvalues)))

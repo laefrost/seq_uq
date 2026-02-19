@@ -34,10 +34,10 @@ def main(args):
     eval_type = args.eval_type
     task_type = args.task_type
     fact_model_name = args.fact_model_name
+    model_id = args.model_id
 
     nlp = spacy.load("en_core_web_sm")
     generations = load(f'{exp_name}_{ds_name}_generations.pkl')
-    uqs = load(f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_cosent.pkl')
     logging.info('Answers loaded!')
     
     metric = get_metric(args.metric)
@@ -63,10 +63,12 @@ def main(args):
         depths_words = []
         sem_rels_words = []
         sem_rels_tokens = []
+        word_tokens = []
         counter = 0
+        
+        generations = generations[:4]
 
-        assert len(generations) == len(uqs)
-        for gen, u in zip(generations, uqs):
+        for gen in generations:
             counter += 1 
             example = gen['example']
             #gen_words = u['gen_words']
@@ -79,8 +81,9 @@ def main(args):
             questions.append(gen['example']['question'])
             atomic_facts.append([gen['generated_text']])
             generated_tokens.append(gen['gen_tokens'])
-            generated_words.append(u['gen_words'])
-            
+            generated_words.append(gen['gen_words'])
+            word_tokens.append(gen['gen_ids_words'])
+                        
             doc = nlp(gen['generated_text'])
             role_words = [token.dep_ for token in doc]
             roles_words.append(role_words)
@@ -104,25 +107,26 @@ def main(args):
         
         atomic_facts = None
         result = fs.get_score(topics=topics,
-                       generations=generated_answers,
-                       true_answers = None, 
-                       questions = None, 
-                       atomic_facts=atomic_facts,
-                       # knowledge source 
-                       knowledge_source=None,
-                       verbose=True, 
-                       do_matching=False,
-                       gen_tokens = generated_tokens, 
-                       gen_words = generated_words)
+                        generations=generated_answers,
+                        true_answers = None, 
+                        questions = None, 
+                        atomic_facts=atomic_facts,
+                        # knowledge source 
+                        knowledge_source=None,
+                        verbose=True, 
+                        do_matching = True, 
+                        gen_words = generated_words, 
+                        word_tokens = word_tokens, 
+                        tokenizer_name = model_id)
         
         
         assert len(result['decisions']) == len(generations)
         
-        for decision, gen, role_words, subtree_words, depth_words, sem_rel_words, sem_rel_tokens, u in zip(result['decisions'], generations, roles_words, subtrees_words, depths_words, sem_rels_words, sem_rels_tokens, uqs):
+        for decision, gen, role_words, subtree_words, depth_words, sem_rel_words, sem_rel_tokens in zip(result['decisions'], generations, roles_words, subtrees_words, depths_words, sem_rels_words, sem_rels_tokens):
             example = gen['example']
             generated_text = gen['generated_text']
             gen_tokens = gen['gen_tokens']
-            gen_words = u['gen_words']
+            gen_words = gen['gen_words']
             d_list = []
             print(decision)
             for d in decision: 

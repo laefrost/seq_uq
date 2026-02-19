@@ -91,6 +91,7 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
     assert unique_ids == list(range(len(unique_ids)))
     probs_per_semantic_id = []
     sum_clusters_probs = np.sum(probs)
+    # print("Probs in logsum", probs)
     for uid in unique_ids:
         # Find positions in `semantic_ids` which belong to the active `uid`.
         id_indices = [pos for pos, x in enumerate(semantic_ids) if x == uid]
@@ -122,16 +123,16 @@ def predictive_cond_entropy(topics, pred_entropies_per_topic):
     cond_entropy = np.sum(freqs * entropy_vec)
     return cond_entropy
 
-def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 'complete', topics = None): 
+def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, probs, mode = 'complete', topics = None): 
     entropies = []
     counter = 0
     # Compute semantic entropy.
     if topics is not None: 
-        for ids, probs, topic in zip(cluster_ids_across_steps, seq_tokens, topics): 
-            if mode == 'complete':
-                probs_step = probs['alternative_sequence_probs']
-            else: 
-                probs_step = probs['alternative_token_probs']
+        for ids, probs_step, topic in zip(cluster_ids_across_steps, probs, topics): 
+            # if mode == 'complete':
+            #     probs_step = probs['alternative_sequence_probs']
+            # else: 
+            #     probs_step = probs['alternative_token_probs']
             semantic_ids = ids['cluster_ids']
             topic_ids = topic['topic_ids']
             pe_topics = predictive_entropy_per_topic(semantic_ids, topic_ids, probs_step)
@@ -139,11 +140,11 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, mode = 
             cond_pe = predictive_cond_entropy(topic_ids, pe_topics)
             entropies.append(cond_pe)
     else: 
-        for ids, probs in zip(cluster_ids_across_steps, seq_tokens): 
-            if mode == 'complete':
-                probs_step = probs['alternative_sequence_probs']
-            else: 
-                probs_step = probs['alternative_token_probs']
+        for ids, probs_step in zip(cluster_ids_across_steps, probs): 
+            # if mode == 'complete':
+            #     probs_step = probs['alternative_sequence_probs']
+            # else: 
+            #     probs_step = probs['alternative_token_probs']
             semantic_ids = ids['cluster_ids']
             probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
             pe = predictive_entropy_rao(probs_per_semantic_id)
@@ -156,6 +157,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
     cluster_ids_across_steps = []
     # cluster_weights_across_steps = []
     topic_ids_across_steps = []
+    probs_across_steps = []
     MAX_BATCH = 32
     # for s, step in enumerate(seq_tokens): 
     #     decoded_seqs = step.get('alternative_sequence_decoded', None)
@@ -173,12 +175,23 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
     #print('------------------------------------- Sequence Length : ', len(seq_tokens))
     
     for s, step in enumerate(seq_tokens): 
-        decoded_seqs = step.get('alternative_sequence_decoded', None) 
+        decoded_seqs = step.get('alternative_sequence_question_decoded', None)
+        probs = step.get('alternative_token_probs', None)
+        
+        # print(decoded_seqs, probs)
+        
+        unique_elements = list(set(zip(decoded_seqs, probs)))
+        # unique_seqs = set(decoded_seqs)
+        #print(unique_elements)
         set_step = set(tuple(sublist) for sublist in decoded_seqs)
         #print('s----------------------', s, len(decoded_seqs))
-        if len(set_step) == 1: 
-            cluster_ids = [0] * len(decoded_seqs)
-            topic_ids = [0] * len(decoded_seqs)
+        # if len(set_step) == 1 or len(decoded_seqs) == 1: 
+        if len(unique_elements) == 1:
+            #cluster_ids = [0] * len(decoded_seqs)
+            #topic_ids = [0] * len(decoded_seqs)
+            cluster_ids = [0]
+            topic_ids = [0]
+            probs = [unique_elements[0][1]]
             # cluster_weights = [1]
         else:  
             # print(decoded_seqs)   
@@ -238,6 +251,8 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             pair_to_idx = {}  # Map (string1, string2) -> index in batched_pairs
             pair_mappings = []  # List of (i, j, score_idx) for matrix population
             
+            decoded_seqs = [element[0] for element in unique_elements]
+            probs = [element[1] for element in unique_elements]
             score_matrix = np.full((len(decoded_seqs), len(decoded_seqs)), np.nan)
             entailment_score = 1 if mode == 'data' else 2 
             contradiction_score = 0
@@ -288,8 +303,8 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             #print(score_matrix)
             assert not np.isnan(score_matrix).any()
             
-            reachables = list()
-            n = len(decoded_seqs)
+            #reachables = list()
+            #n = len(decoded_seqs)
             
             # for i in range(n): 
             #     row = score_matrix[i]
@@ -466,9 +481,16 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
                 
         cluster_ids_across_steps.append({'cluster_ids' : cluster_ids})
         topic_ids_across_steps.append({'topic_ids' : topic_ids})
+        probs_across_steps.append(probs)
         # cluster_weights_across_steps.append({'cluster_weights' : cluster_weights})
-        assert len(cluster_ids) == len(decoded_seqs)
+        # print(probs)
+        # print(cluster_ids)
+        # print(topic_ids)
+        # print(unique_elements)
+        assert len(cluster_ids) == len(unique_elements) == len(probs)
+        
+        #print(probs)
     
-    return cluster_ids_across_steps, topic_ids_across_steps
+    return cluster_ids_across_steps, topic_ids_across_steps, probs_across_steps
             
         

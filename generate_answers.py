@@ -7,7 +7,7 @@ import torch
 from models.models import * 
 from uncertainty_metrics.se import * 
 from uncertainty_metrics.pke import *
-from utils.subsequences import generate_subsequences
+from utils.subsequences import generate_words
 from utils.utils import get_parser, construct_prompt, save, get_metric, setup_logger
 from data.utils import load_ds
 from compute_uncertainty_measures import main as compute_uq_main
@@ -52,11 +52,17 @@ def main(args):
         
         prompt = construct_prompt(example['question'], task_type=task_type)
         
-        generated_text, sampled_tokens, gen_ids, gen_tokens = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.1)
-        current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
-
-        pattern = r"\(|\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|</s>|'|\"|`|´|-"
-        gen_words = re.findall(pattern, generated_text)
+        # -------------- old implementation
+        #generated_text, sampled_tokens, gen_ids, gen_tokens = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.1)
+        #current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer) 
+        #seq_words, generated_words, gen_ids_words = generate_word_subsequences(seq_tokens, generated_text, example['question'], gen_ids, llm.tokenizer)       
+        # -------------
+        
+        generated_text, step_sequences, gen_ids, gen_tokens = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.1)
+        gen_words, gen_ids_words = generate_words(token_ids=gen_ids, tokenizer=llm.tokenizer)
+        
+        #pattern = r"\(|\)|[0-9]+(?:[.,-][0-9]+)*|[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*|[.,;?!:]|\n|</s>|'|\"|`|´|-"
+        # gen_words = re.findall(pattern, generated_text)
         
         # TODO: Insert fact score logic: Not really necessary, can also do that afterwards after generation 
         # get out = factsocrer.py 
@@ -88,11 +94,13 @@ def main(args):
             # 'acc' : acc, 
             'topic' : example.get('topic', None),
             'generated_text' : generated_text, 
-            'sampled_tokens' : sampled_tokens, 
+            'step_sequences' : step_sequences, 
             'gen_ids' : gen_ids, 
-            'seq_tokens' : seq_tokens, 
-            'current_probs' : current_probs, 
+            #'seq_tokens' : seq_tokens, 
+            #'seq_words' : seq_words,
+            #'current_probs' : current_probs, 
             'gen_tokens' : gen_tokens,
+            'gen_ids_words' : gen_ids_words,
             'gen_words' : gen_words}
         )
 
