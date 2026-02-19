@@ -166,7 +166,8 @@ def main(args):
                                'sentence' : d['sentence'], 
                                'fact' : d['atom'], 
                                'matched_words' : d['matched_words'], 
-                               'matched indices' : d['matched_word_indices'],
+                               'matched indices': d['matched_word_indices'],
+                               'matched_token_indices' : d['matched_token_indices'], 
                                'gen_words' : gen_words})
                 
             eval_results.append({

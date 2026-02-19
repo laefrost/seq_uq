@@ -7,7 +7,6 @@ def rao_entropy(Y, probs, kernel=lambda x, y: metrics.pairwise.cosine_distances(
     if s <= 0:
         raise ValueError("probs must sum to a positive value")
     probs /= s
-    
     probs = np.asarray(probs, dtype=float).reshape(-1, 1)  # list -> (n,1)
     YY = kernel(Y, Y)              # (n,n)
     probs_matrix = probs @ probs.T # (n,n)

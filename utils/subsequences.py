@@ -129,7 +129,7 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
             in_nucleus = cumulative_probs <= selection_p
             in_nucleus[..., 0] = True            
             sampled_ids = sorted_indices[in_nucleus]
-            print("sampled ids", sampled_ids)
+            # print("sampled ids", sampled_ids)
         
         current_prob = float(probs[gen_ids[i]].item())
         
@@ -145,7 +145,7 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
             s_str.append(token_str)
             token_probs.append(token_prob)
         
-        print("tokenprobs ", token_probs)
+        # print("tokenprobs ", token_probs)
         
         ln_prob = -np.log(current_prob)
         entropy = torch.sum(used_logits * torch.log(used_logits))
@@ -194,31 +194,30 @@ def generate_word_subsequences(seq_tokens, generated_words, word_ids, question, 
             entropies = []
             end_idx = seq_idx + len(ids)
             prev_probs_words = [1] * len(seq_tokens[seq_idx]['alternative_sequence_decoded'])
-            prev_probs = [1] * len(seq_tokens[seq_idx]['alternative_sequence_decoded'])
-            
+            prev_prob = 1            
             
             # das hier checken
             for i in list(range(seq_idx, end_idx)):
                 seq_data = seq_tokens[i]
                 n  = len(seq_tokens[i]['alternative_sequence_decoded'])
                 entropies.append(seq_data['entropy'])
+                prev_probs = [prev_prob] * n 
                 alternative_sequences.extend([
                     question + ' ' + t for t in seq_data['alternative_sequence_decoded']
                 ])
-                
+                # print("n", n, " len prev probs", len(prev_probs), "len token probs ", len(seq_data['alternative_sequence_probs']))
                 #alternative_probs.extend(prev_probs * seq_data['alternative_sequence_probs'])
                 #alternative_token_probs.extend(prev_probs * seq_data['alternative_token_probs'])
                 alternative_probs.extend([x * y for x, y in zip(prev_probs, seq_data['alternative_sequence_probs'])])
                 alternative_token_probs.extend([x * y for x, y in zip(prev_probs, seq_data['alternative_token_probs'])])
-                
                 current_probs.append(seq_data['current_prob'])
-                prev_probs = [seq_data['current_prob']] * n
+                prev_prob = seq_data['current_prob']
             
                 # Remove duplicate subsequences
             #alternative_sequences, alternative_probs, alternative_token_probs = remove_subsequences(
             #    alternative_sequences, alternative_probs, alternative_token_probs
             #)
-                
+            # print("final len", len(alternative_token_probs))    
             current_prob = np.prod(current_probs) 
             entropy = np.sum(entropies)   
             ln_prob = - np.log(current_prob)        

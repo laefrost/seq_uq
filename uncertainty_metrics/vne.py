@@ -106,7 +106,8 @@ def build_Q(word_pos):
 def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=None), type_mask = None, mode = 'sampling', probs = None, eps=1e-10, Y2 = None, combination_mode = "additive"): 
     YY = kernel(Y, Y).astype(np.float64)
     n = Y.shape[0]
-    print("kernel shape: ", YY.shape)
+    # print("kernel shape: ", YY.shape)
+    
     if Y2 is not None:
         Y2Y2 = kernel(Y2, Y2).astype(np.float64)
         if combination_mode == "multiplicative": 
@@ -121,6 +122,7 @@ def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=None), ty
         YY = YY / n
         
     else: 
+        # print("probs len ", len(probs))
         YY = kernel(Y, Y).astype(np.float64)
         D = np.diag(np.sqrt(probs))
         YY = D @ YY @ D
