@@ -122,15 +122,37 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
         if method == "sampling":   
             sampled_ids = torch.multinomial(probs, num_samples=sampling_k, replacement=True)
         else: 
-            sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
-            sorted_probs = F.softmax(sorted_logits, dim=-1)
-            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+            # sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+            # sorted_probs = F.softmax(sorted_logits, dim=-1)
+            # cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
             
-            in_nucleus = cumulative_probs <= selection_p
-            in_nucleus[..., 0] = True            
-            sampled_ids = sorted_indices[in_nucleus]
+            # in_nucleus = cumulative_probs <= selection_p
+            # in_nucleus[..., 0] = True            
+            # sampled_ids = sorted_indices[in_nucleus]
             # print("sampled ids", sampled_ids)
+            sorted_logits, sorted_indices = torch.sort(used_logits, descending=True, dim=-1)
+            sorted_probs = torch.softmax(sorted_logits, dim=-1)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+            in_nucleus = cumulative_probs <= selection_p
+            in_nucleus[..., 0] = True  # always keep best token
+
+            max_k = 20
+
+            # rank positions along vocab dim
+            rank = torch.arange(sorted_probs.size(-1), device=logits.device)
+            rank = rank.view(*([1] * (sorted_probs.ndim - 1)), -1)  # broadcast
+
+            topk_mask = rank < max_k
+
+            nucleus_counts = in_nucleus.sum(dim=-1, keepdim=True)
+            final_mask = torch.where(nucleus_counts > max_k, topk_mask, in_nucleus)
+
+            # deterministic selected token ids (variable count per row)
+            sampled_ids = sorted_indices[final_mask]
         
+        
+            print(len(sampled_ids))
         current_prob = float(probs[gen_ids[i]].item())
         
         for token_id in sampled_ids.tolist():

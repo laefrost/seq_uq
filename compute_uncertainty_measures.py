@@ -28,21 +28,17 @@ setup_logger()
 
 def se_pipe_across_tokens(question, seq_tokens, ellm, mode = 'adapted'): 
     cluster_ids_across_steps, topic_ids_across_steps, probs = generate_semantic_subsequence_ids(seq_tokens=seq_tokens, question = question, ellm=ellm, mode=mode)
-    entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, probs = probs, mode = 'complete') 
     entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, probs = probs, mode = 'subsequ')  
-    entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, probs = probs, mode = 'complete', topics = topic_ids_across_steps) 
     entropies_to_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_tokens, probs = probs, mode = 'subsequ', topics = topic_ids_across_steps)    
   
-    return entropies_ss, entropies_to, entropies_ss_weighted, entropies_to_weighted 
+    return entropies_to, entropies_to_weighted 
 
 
 def se_pipe_across_words(question, seq_words, ellm, mode = 'adapted'):   
     cluster_ids_across_steps, topic_ids_across_steps, probs = generate_semantic_subsequence_ids(seq_tokens=seq_words, question = question, ellm=ellm, mode=mode)
-    entropies_ss = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, probs = probs, mode = 'complete') 
     entropies_to = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, probs = probs, mode = 'subsequ')
-    entropies_ss_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, probs = probs, mode = 'complete', topics = topic_ids_across_steps) 
     entropies_to_weighted = compute_se_across_subsequences(cluster_ids_across_steps=cluster_ids_across_steps, seq_tokens=seq_words, probs = probs, mode = 'subsequ', topics = topic_ids_across_steps)    
-    return entropies_ss, entropies_to, entropies_ss_weighted, entropies_to_weighted 
+    return entropies_to, entropies_to_weighted 
 
 
 def uq_pipe_across_tokens(seq_tokens, emb_model, emb_model_deltas, question, gen_ids, tokenizer_llm, tokenizer_emb, mode = 'sampling'):
@@ -80,8 +76,6 @@ def uq_pipe_across_tokens(seq_tokens, emb_model, emb_model_deltas, question, gen
         
         #vne_deltas = vne(embedding_deltas) #, kernel=lambda x, y: cosine_similarity(x, y))
         
-        print("shapes: ", ems_token.shape, ems.shape, prev_ems.shape)
-        print(len(s['alternative_token_probs']))
         
         vne_emb = vne(ems, mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))
         vne_tokens = vne(ems_token, mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))
@@ -121,7 +115,7 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas, mode = 'samplin
         previous_seq = s['prev_seq_question_decoded']
         alternative_sequences = s['alternative_sequence_question_decoded']
         
-        print(alternative_sequences)
+        # print(alternative_sequences)
         
         ln_prob = - np.log(s['current_prob'])
         ln_probs.append(ln_prob)
@@ -157,12 +151,6 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas, mode = 'samplin
         # mask[i, j] = 1 if either i or j is PUNCT/SPACE, else 0
         mask_pos = (special_mask[:, None] | special_mask[None, :]).astype(int)
         
-        # print(mask_pos)
-        
-        print("shapes: ", alternative_sequences_emb.shape, delta_embs.shape)
-        print(len(s['alternative_token_probs']))
-        print("Probs", s['alternative_token_probs'])
-        
         if len(alternative_sequences) == 1:
             vne_emb, vne_ct, vne_word, vne_combined, vne_add, vne_delta, rao_emb, conflict, conflict_ct = 0, 0, 0, 0, 0, 0, 0, 0, 0
         else:
@@ -176,9 +164,6 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas, mode = 'samplin
             conflict = avg_conflict(Y = alternative_sequences_emb, probs = s['alternative_token_probs']) 
             conflict_ct = avg_conflict(Y = alternative_sequences_emb, probs = s['alternative_token_probs'], type_mask = mask_pos) 
             vne_delta = vne(Y = delta_embs, kernel=lambda x, y: cosine_similarity(x, y), mode = mode, probs = s['alternative_token_probs'])
-            
-            if conflict_ct != conflict: 
-                print("Different conflicts: ", conflict, conflict_ct)
         
         vnes.append(vne_emb)
         vnes_ct.append(vne_ct)
@@ -239,12 +224,12 @@ def main(args):
         seq_tokens_selection = generate_subsequences(step_sequences, llm.tokenizer, gen_ids, sampling_k = 10, scaling_p = None, selection_p = 0.9, method = "selection", question = "")
         seq_words_selection = generate_word_subsequences(seq_tokens_selection, generated_words, word_ids, question, generated_text, llm.tokenizer)
                 
-        # if model_id != ellm_model_id: 
-        #     ses_words, ses_words_to, ses_words_w, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_sampled, ellm, mode='adapted')
-        #     ses_tokens, ses_tokens_to, ses_tokens_w, ses_tokens_to_w = se_pipe_across_tokens(example['question'], seq_tokens_sampled, ellm, mode='adapted')
-        # else: 
-        #     ses_words, ses_words_to, ses_words_w, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_sampled, llm)
-        #     ses_tokens, ses_tokens_to, ses_tokens_w, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens_sampled, llm)
+        if model_id != ellm_model_id: 
+            ses_words_to, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_sampled, ellm, mode='adapted')
+            ses_tokens_to, ses_tokens_to_w = se_pipe_across_tokens(example['question'], seq_tokens_sampled, ellm, mode='adapted')
+        else: 
+            ses_words_to, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_sampled, llm)
+            ses_tokens_to, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens_sampled, llm)
         if emb_model_id != emb_model_id_deltas:
             vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_sampled, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
         else: 
@@ -259,14 +244,10 @@ def main(args):
                     'gen_text' : element['generated_text'], 
                     'gen_words': generated_words,
                     'gen_tokens' : generated_tokens,
-                    # 'ses_word' : ses_words,
-                    # 'ses_word_w' : ses_words_w,
-                    # 'ses_word_to' : ses_words_to,
-                    # 'ses_word_to_w' : ses_words_to_w,
-                    # 'ses_tokens' : ses_tokens,
-                    # 'ses_tokens_to' : ses_tokens_to,
-                    # 'ses_tokens_w' : ses_tokens_w,
-                    # 'ses_tokens_to_w' : ses_tokens_to_w,
+                    'ses_word_to' : ses_words_to,
+                    'ses_word_to_w' : ses_words_to_w,
+                    'ses_tokens_to' : ses_tokens_to,
+                    'ses_tokens_to_w' : ses_tokens_to_w,
                     'vnes_token' : vnes_token, 
                     'vnes_token_token' : vnes_token_token, 
                     'vnes_token_add_combined' : vnes_token_add_combined, 
@@ -294,12 +275,12 @@ def main(args):
                     })
         
         # ------------------------------------------------------ selection part
-        # if model_id != ellm_model_id: 
-        #     ses_words, ses_words_to, ses_words_w, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_selection, ellm, mode='adapted')
-        #     ses_tokens, ses_tokens_to, ses_tokens_w, ses_tokens_to_w = se_pipe_across_tokens(example['question'], seq_tokens_sampled, ellm, mode='adapted')
-        # else: 
-        #     ses_words, ses_words_to, ses_words_w, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_selection, llm)
-        #     ses_tokens, ses_tokens_to, ses_tokens_w, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens_sampled, llm)
+        if model_id != ellm_model_id: 
+            ses_words_to, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_selection, ellm, mode='adapted')
+            ses_tokens_to, ses_tokens_to_w = se_pipe_across_tokens(example['question'], seq_tokens_sampled, ellm, mode='adapted')
+        else: 
+            ses_words_to, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_selection, llm)
+            ses_tokens_to, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens_sampled, llm)
         if emb_model_id != emb_model_id_deltas:
            vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_sampled, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
         else: 
@@ -314,14 +295,10 @@ def main(args):
                     'gen_text' : element['generated_text'], 
                     'gen_words': generated_words,
                     'gen_tokens' : generated_tokens,
-                    # 'ses_word' : ses_words,
-                    # 'ses_word_w' : ses_words_w,
-                    # 'ses_word_to' : ses_words_to,
-                    # 'ses_word_to_w' : ses_words_to_w,
-                    # 'ses_tokens' : ses_tokens,
-                    # 'ses_tokens_to' : ses_tokens_to,
-                    # 'ses_tokens_w' : ses_tokens_w,
-                    # 'ses_tokens_to_w' : ses_tokens_to_w,
+                    'ses_word_to' : ses_words_to,
+                    'ses_word_to_w' : ses_words_to_w,
+                    'ses_tokens_to' : ses_tokens_to,
+                    'ses_tokens_to_w' : ses_tokens_to_w,
                     'vnes_token' : vnes_token, 
                     'vnes_token_token' : vnes_token_token, 
                     'vnes_token_add_combined' : vnes_token_add_combined, 
@@ -351,8 +328,8 @@ def main(args):
         del ellm
     del llm
     #save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_weighted-2.pkl')
-    #save(uqs_sampled, f'{exp_name}_{ds_name}_uqs_sampled.pkl')
-    save(uqs_selection, f'{exp_name}_{ds_name}_uqs_vnes.pkl')
+    save(uqs_sampled, f'{exp_name}_{ds_name}_uqs_sampled.pkl')
+    save(uqs_selection, f'{exp_name}_{ds_name}_uqs_selection.pkl')
     
     
         
