@@ -282,9 +282,9 @@ def main(args):
             ses_words_to, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_selection, llm)
             ses_tokens_to, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens_sampled, llm)
         if emb_model_id != emb_model_id_deltas:
-           vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_sampled, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
+           vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_selection, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
         else: 
-           vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_sampled, emb_model=emb_model, emb_model_deltas=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)     
+           vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_selection, emb_model=emb_model, emb_model_deltas=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)     
         if emb_model_id != emb_model_id_deltas:
             vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = uq_pipe_across_words(seq_words_selection, emb_model=emb_model, emb_model_deltas=emb_model_deltas)
         else: 
@@ -315,13 +315,13 @@ def main(args):
                     'conflicts_word': conflicts_word, 
                     'conflicts_word_ct' : conflicts_word_ct, 
                     'conflicts_token' : conflicts_token,
-                    'ln_probs_word' : [s['ln_prob'] for s in seq_words_sampled],
-                    'ln_probs_token' : [s['ln_prob'] for s in seq_tokens_sampled],
-                    'entropies_word' : [s['entropy'] for s in seq_words_sampled],
-                    'entropies_token' : [s['entropy'] for s in seq_tokens_sampled],
+                    'ln_probs_word' : [s['ln_prob'] for s in seq_words_selection],
+                    'ln_probs_token' : [s['ln_prob'] for s in seq_tokens_selection],
+                    'entropies_word' : [s['entropy'] for s in seq_words_selection],
+                    'entropies_token' : [s['entropy'] for s in seq_tokens_selection],
                     'true_answer' : example['answer'], 
-                    'seq_tokens' : seq_tokens_sampled,
-                    'seq_words' : seq_words_sampled
+                    'seq_tokens' : seq_tokens_selection,
+                    'seq_words' : seq_words_selection
                     })
     
     if model_id != ellm_model_id:

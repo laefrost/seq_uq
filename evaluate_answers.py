@@ -66,8 +66,6 @@ def main(args):
         word_tokens = []
         counter = 0
         
-        generations = generations[:4]
-
         for gen in generations:
             counter += 1 
             example = gen['example']
