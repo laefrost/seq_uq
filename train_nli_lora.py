@@ -175,7 +175,7 @@ def main():
 
     # FIX: enable bf16 if on Ampere+ GPU (more stable than fp16 for DeBERTa)
     use_fp16 = False
-    use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    use_bf16 = False #torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     logger.info(f"bf16={use_bf16}, fp16={use_fp16}")
 
     # Load data
