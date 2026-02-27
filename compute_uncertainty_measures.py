@@ -42,6 +42,7 @@ def se_pipe_across_words(question, seq_words, ellm, mode = 'adapted'):
 
 
 def uq_pipe_across_tokens(seq_tokens, emb_model, emb_model_deltas, question, gen_ids, tokenizer_llm, tokenizer_emb, mode = 'sampling'):
+    print("Mode: ", mode)
     vnes = []
     vnes_tokens = []
     vnes_add_combined = []
@@ -50,6 +51,7 @@ def uq_pipe_across_tokens(seq_tokens, emb_model, emb_model_deltas, question, gen
     ln_probs = []
     raos = []
     conflicts = []
+    stds = []
     for s_index, s in enumerate(seq_tokens): 
         ln_prob = - np.log(s['current_prob'])
         ln_probs.append(ln_prob)
@@ -77,11 +79,11 @@ def uq_pipe_across_tokens(seq_tokens, emb_model, emb_model_deltas, question, gen
         #vne_deltas = vne(embedding_deltas) #, kernel=lambda x, y: cosine_similarity(x, y))
         
         
-        vne_emb = vne(ems, mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))
-        vne_tokens = vne(ems_token, mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))
-        vne_add_combined = vne(Y = ems, Y2 = ems_token, combination_mode = "additive", mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))
-        vne_multpl_combined = vne(ems, Y2 = ems_token, combination_mode = "multiplicative", mode = mode, probs = s['alternative_token_probs'])
-        vne_deltas = vne(embedding_deltas, kernel=lambda x, y: cosine_similarity(x, y), mode = mode, probs = s['alternative_token_probs'])
+        vne_emb, std_emb = vne(ems, mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))
+        vne_tokens, std_token = vne(ems_token, mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))
+        vne_add_combined, std_add = vne(Y = ems, Y2 = ems_token, combination_mode = "additive", mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))
+        vne_multpl_combined, std_joint = vne(ems, Y2 = ems_token, combination_mode = "multiplicative", mode = mode, probs = s['alternative_token_probs'])
+        vne_deltas, std_deltas = vne(embedding_deltas, mode = mode, probs = s['alternative_token_probs'])
         rao_emb = rao_entropy(Y = ems, probs = s['alternative_token_probs'])
         conflict = avg_conflict(Y = ems, probs = s['alternative_token_probs'])
         
@@ -92,11 +94,13 @@ def uq_pipe_across_tokens(seq_tokens, emb_model, emb_model_deltas, question, gen
         vnes_deltas.append(vne_deltas)
         raos.append(rao_emb)
         conflicts.append(conflict)
+        stds.append(std_emb)
         
-    return vnes, vnes_tokens, vnes_add_combined, vnes_multpl_combined, vnes_deltas, ln_probs, raos, conflicts
+    return vnes, vnes_tokens, vnes_add_combined, vnes_multpl_combined, vnes_deltas, ln_probs, raos, conflicts, stds
 
 
 def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas, mode = 'sampling'):
+    print("Mode: ", mode)
     l = 1
     vnes = []
     vnes_ct = []
@@ -108,7 +112,7 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas, mode = 'samplin
     conflicts = []
     conflicts_ct = []
     vnes_deltas = []
-    
+    stds = []
     
     nlp = spacy.load("en_core_web_sm")
     for s_index, s in enumerate(seq_words): 
@@ -152,18 +156,18 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas, mode = 'samplin
         mask_pos = (special_mask[:, None] | special_mask[None, :]).astype(int)
         
         if len(alternative_sequences) == 1:
-            vne_emb, vne_ct, vne_word, vne_combined, vne_add, vne_delta, rao_emb, conflict, conflict_ct = 0, 0, 0, 0, 0, 0, 0, 0, 0
+            vne_emb, vne_ct, vne_word, vne_combined, vne_add, vne_delta, rao_emb, conflict, conflict_ct, std_emb = 0, 0, 0, 0, 0, 0, 0, 0, 0,0
         else:
-            vne_emb = vne(Y = alternative_sequences_emb, mode = mode, probs = s['alternative_token_probs'])#, kernel=lambda x, y: cosine_similarity(x, y))
-            vne_ct = vne(Y = alternative_sequences_emb, type_mask=mask_pos, mode = mode, probs = s['alternative_token_probs'])#, kernel=lambda x, y: cosine_similarity(x, y))
-            vne_word = vne(Y = words_emb) #, kernel=lambda x, y: cosine_similarity(x, y))#, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
-            vne_combined = vne(Y = alternative_sequences_emb, Y2 = words_emb, combination_mode = "multiplicative", mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y)) #, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
+            vne_emb, std_emb = vne(Y = alternative_sequences_emb, mode = mode, probs = s['alternative_token_probs'])#, kernel=lambda x, y: cosine_similarity(x, y))
+            vne_ct, std_ct = vne(Y = alternative_sequences_emb, type_mask=mask_pos, mode = mode, probs = s['alternative_token_probs'])#, kernel=lambda x, y: cosine_similarity(x, y))
+            vne_word, std_word = vne(Y = words_emb, mode=mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y))#, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
+            vne_combined, std_joint = vne(Y = alternative_sequences_emb, Y2 = words_emb, combination_mode = "multiplicative", mode = mode, probs = s['alternative_token_probs']) #, kernel=lambda x, y: cosine_similarity(x, y)) #, kernel=lambda x, y: cosine_similarity(x, y), type_mask=mask_pos)
             # vne_proj = vne(Y = alternative_sequences_emb, word_pos = word_pos, kernel=lambda x, y: cosine_similarity(x, y))
-            vne_add =  vne(Y = alternative_sequences_emb, Y2 = words_emb, combination_mode = "additive", mode = mode, probs = s['alternative_token_probs'])
+            vne_add, std_add =  vne(Y = alternative_sequences_emb, Y2 = words_emb, combination_mode = "additive", mode = mode, probs = s['alternative_token_probs'])
             rao_emb = rao_entropy(Y = alternative_sequences_emb, probs = s['alternative_token_probs']) 
             conflict = avg_conflict(Y = alternative_sequences_emb, probs = s['alternative_token_probs']) 
             conflict_ct = avg_conflict(Y = alternative_sequences_emb, probs = s['alternative_token_probs'], type_mask = mask_pos) 
-            vne_delta = vne(Y = delta_embs, kernel=lambda x, y: cosine_similarity(x, y), mode = mode, probs = s['alternative_token_probs'])
+            vne_delta, std_delta = vne(Y = delta_embs, kernel=lambda x, y: cosine_similarity(x, y), mode = mode, probs = s['alternative_token_probs'])
         
         vnes.append(vne_emb)
         vnes_ct.append(vne_ct)
@@ -174,8 +178,9 @@ def uq_pipe_across_words(seq_words, emb_model, emb_model_deltas, mode = 'samplin
         conflicts.append(conflict)
         conflicts_ct.append(conflict_ct)
         vnes_deltas.append(vne_delta)
+        stds.append(std_emb)
             
-    return vnes, vnes_ct, vnes_word, vnes_combined, vnes_proj, vnes_deltas, ln_probs, raos, conflicts, conflicts_ct          
+    return vnes, vnes_ct, vnes_word, vnes_combined, vnes_proj, vnes_deltas, ln_probs, raos, conflicts, conflicts_ct, stds         
         
         
 def main(args): 
@@ -207,7 +212,9 @@ def main(args):
     
     tokenizer_emb = emb_model.tokenizer
     
-    for e, element in enumerate(generations): 
+    for e, element in enumerate(generations):
+        # if e >= 100:
+        #      break
         logging.info(element['generated_text'])
         example = element['example']
         question = example['question']
@@ -218,10 +225,10 @@ def main(args):
         word_ids = element['gen_ids_words']
         generated_text = element['generated_text']
         
-        seq_tokens_sampled = generate_subsequences(step_sequences, llm.tokenizer, gen_ids, sampling_k = 10, scaling_p = None, selection_p = 0.9, method = "sampling", question = "")
+        seq_tokens_sampled = generate_subsequences(step_sequences, llm.tokenizer, gen_ids, sampling_k = 10, scaling_p = None, selection_p = 0.9, method = "sampling", question = question)
         seq_words_sampled = generate_word_subsequences(seq_tokens_sampled, generated_words, word_ids, question, generated_text, llm.tokenizer)
         
-        seq_tokens_selection = generate_subsequences(step_sequences, llm.tokenizer, gen_ids, sampling_k = 10, scaling_p = None, selection_p = 0.9, method = "selection", question = "")
+        seq_tokens_selection = generate_subsequences(step_sequences, llm.tokenizer, gen_ids, sampling_k = 10, scaling_p = None, selection_p = 0.9, method = "selection", question = question)
         seq_words_selection = generate_word_subsequences(seq_tokens_selection, generated_words, word_ids, question, generated_text, llm.tokenizer)
                 
         if model_id != ellm_model_id: 
@@ -231,13 +238,13 @@ def main(args):
             ses_words_to, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_sampled, llm)
             ses_tokens_to, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens_sampled, llm)
         if emb_model_id != emb_model_id_deltas:
-            vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_sampled, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
+            vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token, std_emb_token = uq_pipe_across_tokens(seq_tokens_sampled, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
         else: 
-            vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_sampled, emb_model=emb_model, emb_model_deltas=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)     
+            vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token, std_emb_token = uq_pipe_across_tokens(seq_tokens_sampled, emb_model=emb_model, emb_model_deltas=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)     
         if emb_model_id != emb_model_id_deltas:
-            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = uq_pipe_across_words(seq_words_sampled, emb_model=emb_model, emb_model_deltas=emb_model_deltas)
+            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct, std_emb_word = uq_pipe_across_words(seq_words_sampled, emb_model=emb_model, emb_model_deltas=emb_model_deltas)
         else: 
-            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = uq_pipe_across_words(seq_words_sampled, emb_model=emb_model, emb_model_deltas=emb_model)
+            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct, std_emb_word = uq_pipe_across_words(seq_words_sampled, emb_model=emb_model, emb_model_deltas=emb_model)
         
         
         uqs_sampled.append({'question': example['question'], 
@@ -271,25 +278,26 @@ def main(args):
                     'true_answer' : example['answer'], 
                     #'sampled_tokens' : sampled_tokens,
                     'seq_tokens' : seq_tokens_sampled,
-                    'seq_words' : seq_words_sampled
+                    'seq_words' : seq_words_sampled, 
+                    'std_emb_word' : std_emb_word,
+                    'std_emb_token' : std_emb_token
                     })
-        
+        print("...........................", vnes_token, vnes_word)
         # ------------------------------------------------------ selection part
         if model_id != ellm_model_id: 
             ses_words_to, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_selection, ellm, mode='adapted')
-            ses_tokens_to, ses_tokens_to_w = se_pipe_across_tokens(example['question'], seq_tokens_sampled, ellm, mode='adapted')
+            ses_tokens_to, ses_tokens_to_w = se_pipe_across_tokens(example['question'], seq_tokens_selection, ellm, mode='adapted')
         else: 
             ses_words_to, ses_words_to_w = se_pipe_across_words(example['question'], seq_words_selection, llm)
-            ses_tokens_to, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens_sampled, llm)
+            ses_tokens_to, ses_tokens_to_w  = se_pipe_across_tokens(example['question'], seq_tokens_selection, llm)
         if emb_model_id != emb_model_id_deltas:
-           vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_selection, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)
+           vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token, std_emb_token = uq_pipe_across_tokens(seq_tokens_selection, emb_model=emb_model, emb_model_deltas=emb_model_deltas, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb, mode='selection')
         else: 
-           vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token = uq_pipe_across_tokens(seq_tokens_selection, emb_model=emb_model, emb_model_deltas=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb)     
+           vnes_token, vnes_token_token, vnes_token_add_combined, vnes_token_multpl_combined, vnes_token_deltas, ln_probs_token, raos_token, conflicts_token, std_emb_token = uq_pipe_across_tokens(seq_tokens_selection, emb_model=emb_model, emb_model_deltas=emb_model, question = example['question'], gen_ids = gen_ids, tokenizer_llm=llm.tokenizer, tokenizer_emb=tokenizer_emb, mode='selection')     
         if emb_model_id != emb_model_id_deltas:
-            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = uq_pipe_across_words(seq_words_selection, emb_model=emb_model, emb_model_deltas=emb_model_deltas)
+            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct, std_emb_word = uq_pipe_across_words(seq_words_selection, emb_model=emb_model, emb_model_deltas=emb_model_deltas, mode='selection')
         else: 
-            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct = uq_pipe_across_words(seq_words_selection, emb_model=emb_model, emb_model_deltas=emb_model)
-        
+            vnes_word, vnes_word_ct, vnes_word_word, vnes_word_combined, vnes_word_proj, vnes_word_deltas, ln_probs_word, raos_word, conflicts_word, conflicts_word_ct, std_emb_word = uq_pipe_across_words(seq_words_selection, emb_model=emb_model, emb_model_deltas=emb_model, mode='selection')
         
         uqs_selection.append({'question': example['question'], 
                     'gen_text' : element['generated_text'], 
@@ -321,15 +329,19 @@ def main(args):
                     'entropies_token' : [s['entropy'] for s in seq_tokens_selection],
                     'true_answer' : example['answer'], 
                     'seq_tokens' : seq_tokens_selection,
-                    'seq_words' : seq_words_selection
+                    'seq_words' : seq_words_selection,
+                    'std_emb_word' : std_emb_word,
+                    'std_emb_token' : std_emb_token
                     })
+        print("...........................", vnes_token, vnes_word)
     
     if model_id != ellm_model_id:
         del ellm
     del llm
     #save(uqs, f'{exp_name}_{ds_name}_uqs_all-MiniLM-L6-v2_weighted-2.pkl')
-    save(uqs_sampled, f'{exp_name}_{ds_name}_uqs_sampled.pkl')
-    save(uqs_selection, f'{exp_name}_{ds_name}_uqs_selection.pkl')
+    save(uqs_sampled, f'{exp_name}_{ds_name}_uqs_sampled_test.pkl')
+    save(uqs_selection, f'{exp_name}_{ds_name}_uqs_selection_test.pkl')
+
     
     
         

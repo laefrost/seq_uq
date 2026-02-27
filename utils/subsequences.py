@@ -126,17 +126,17 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
             # sorted_probs = F.softmax(sorted_logits, dim=-1)
             # cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
             
-            # in_nucleus = cumulative_probs <= selection_p
             # in_nucleus[..., 0] = True            
             # sampled_ids = sorted_indices[in_nucleus]
             # print("sampled ids", sampled_ids)
             sorted_logits, sorted_indices = torch.sort(used_logits, descending=True, dim=-1)
             sorted_probs = torch.softmax(sorted_logits, dim=-1)
             cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-
-            in_nucleus = cumulative_probs <= selection_p
-            in_nucleus[..., 0] = True  # always keep best token
-
+            
+            in_nucleus = cumulative_probs < selection_p
+            in_nucleus = in_nucleus.squeeze(0)  # (vocab,)
+            first_false = (cumulative_probs.squeeze(0) >= selection_p).float().argmax()
+            in_nucleus[first_false] = True
             max_k = 20
 
             # rank positions along vocab dim
@@ -147,12 +147,10 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
 
             nucleus_counts = in_nucleus.sum(dim=-1, keepdim=True)
             final_mask = torch.where(nucleus_counts > max_k, topk_mask, in_nucleus)
-
-            # deterministic selected token ids (variable count per row)
             sampled_ids = sorted_indices[final_mask]
         
+            # print(len(sampled_ids))
         
-            print(len(sampled_ids))
         current_prob = float(probs[gen_ids[i]].item())
         
         for token_id in sampled_ids.tolist():
@@ -170,7 +168,13 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
         # print("tokenprobs ", token_probs)
         
         ln_prob = -np.log(current_prob)
-        entropy = torch.sum(used_logits * torch.log(used_logits))
+        log_vals = torch.where(
+            probs == 0,
+            torch.zeros_like(probs),
+            torch.log(probs)
+        )
+
+        entropy = - torch.sum(probs * log_vals)
         
         current_probs.append(current_prob)
         seq_tokens.append({'prev_seq': prev_seq,
@@ -184,7 +188,7 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
                            'alternative_sequence_probs' : seq_probs, 
                            'alternative_token_probs' : token_probs,
                            'alternative_sequence_decoded' : seq_step_decoded,
-                           'alternative_sequence_question_decoded': question + ' ' + seq_step_decoded[0],
+                           'alternative_sequence_question_decoded': [question + ' ' + s for s in seq_step_decoded],
                            'alternative_tokens_str' : s_str})
 
     return seq_tokens
@@ -196,6 +200,7 @@ def generate_word_subsequences(seq_tokens, generated_words, word_ids, question, 
     text_and_question = question + ' ' + generated_text
     prev_seq = ""
     for w, word in enumerate(generated_words):
+        print("---- ", word)
         ids = word_ids[w]
         if len(ids) == 1:
             seq_data = seq_tokens[seq_idx]
@@ -221,6 +226,7 @@ def generate_word_subsequences(seq_tokens, generated_words, word_ids, question, 
             # das hier checken
             for i in list(range(seq_idx, end_idx)):
                 seq_data = seq_tokens[i]
+                print(seq_data['alternative_tokens_str'])
                 n  = len(seq_tokens[i]['alternative_sequence_decoded'])
                 entropies.append(seq_data['entropy'])
                 prev_probs = [prev_prob] * n 
@@ -233,12 +239,15 @@ def generate_word_subsequences(seq_tokens, generated_words, word_ids, question, 
                 alternative_probs.extend([x * y for x, y in zip(prev_probs, seq_data['alternative_sequence_probs'])])
                 alternative_token_probs.extend([x * y for x, y in zip(prev_probs, seq_data['alternative_token_probs'])])
                 current_probs.append(seq_data['current_prob'])
-                prev_prob = seq_data['current_prob']
+                prev_prob = np.prod(current_probs)#seq_data['current_prob']
+                #print("prev prob", prev_prob)
+                #print("alternative_token_probs", alternative_token_probs)
+
             
                 # Remove duplicate subsequences
-            #alternative_sequences, alternative_probs, alternative_token_probs = remove_subsequences(
-            #    alternative_sequences, alternative_probs, alternative_token_probs
-            #)
+            alternative_sequences, alternative_probs, alternative_token_probs = remove_subsequences(
+                alternative_sequences, alternative_probs, alternative_token_probs
+            )
             # print("final len", len(alternative_token_probs))    
             current_prob = np.prod(current_probs) 
             entropy = np.sum(entropies)   

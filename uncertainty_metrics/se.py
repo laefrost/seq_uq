@@ -176,16 +176,15 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
     
     for s, step in enumerate(seq_tokens): 
         decoded_seqs = step.get('alternative_sequence_question_decoded', None)
-        probs = step.get('alternative_token_probs', None)
-        
-        # print(decoded_seqs, probs)
+        probs = step.get('alternative_token_probs', None)        
         
         unique_elements = list(set(zip(decoded_seqs, probs)))
         # unique_seqs = set(decoded_seqs)
-        #print(unique_elements)
         set_step = set(tuple(sublist) for sublist in decoded_seqs)
         #print('s----------------------', s, len(decoded_seqs))
+        #print(len(unique_elements), unique_elements)
         # if len(set_step) == 1 or len(decoded_seqs) == 1: 
+        
         if len(unique_elements) == 1:
             #cluster_ids = [0] * len(decoded_seqs)
             #topic_ids = [0] * len(decoded_seqs)
@@ -483,10 +482,10 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
         topic_ids_across_steps.append({'topic_ids' : topic_ids})
         probs_across_steps.append(probs)
         # cluster_weights_across_steps.append({'cluster_weights' : cluster_weights})
-        # print(probs)
-        # print(cluster_ids)
-        # print(topic_ids)
-        # print(unique_elements)
+        print("Probs", probs)
+        print("Cluster ids", cluster_ids)
+        print("Topic IDS", topic_ids)
+        print(unique_elements)
         assert len(cluster_ids) == len(unique_elements) == len(probs)
         
         #print(probs)

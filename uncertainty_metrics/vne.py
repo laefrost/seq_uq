@@ -101,37 +101,80 @@ def build_Q(word_pos):
 #     # eigenvalues = eigenvalues / eigenvalues.sum()
 #     return float(-np.sum(eigenvalues * np.log(eigenvalues)))
 
+def normalize_kernel(K):
+    """Normalize a kernel matrix K."""
+    diag = np.sqrt(np.diag(K))
+    return K / np.outer(diag, diag)
 
-
-def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=None), type_mask = None, mode = 'sampling', probs = None, eps=1e-10, Y2 = None, combination_mode = "additive"): 
+def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=1), type_mask = None, mode = 'sampling', probs = None, eps=1e-10, Y2 = None, combination_mode = "additive"): 
+    
+    def entropy_from(K):
+        if mode == 'sampling':
+            K = K / n
+        else:
+            p = np.array(probs, dtype=np.float64)
+            p = p / p.sum()
+            D = np.diag(np.sqrt(p))
+            K = D @ K @ D
+            
+        evals = np.linalg.eigvalsh(K)
+        evals = evals[evals > eps]
+        
+        if evals.size == 0:
+            return 0.0
+        # if len(probs) > 1 and mode != 'sampling': 
+        #     print(probs)
+        #     print(-np.sum(evals * np.log(evals)), evals)
+        #     print(-np.sum(evals_tmp * np.log(evals_tmp)), evals_tmp)
+        if n != 1:
+            vne = -np.sum(evals * np.log(evals)) / np.log(n)
+        else: 
+            vne = 0#-np.sum(evals * np.log(evals))
+            
+        return vne, K.std() #float(-np.sum(evals * np.log(evals)))
+    
     YY = kernel(Y, Y).astype(np.float64)
+    
     n = Y.shape[0]
-    # print("kernel shape: ", YY.shape)
     
     if Y2 is not None:
         Y2Y2 = kernel(Y2, Y2).astype(np.float64)
         if combination_mode == "multiplicative": 
-            YY = YY * Y2Y2
+            YY2 = YY * Y2Y2
+            HXY, STDXY = entropy_from(YY2)
+            HY, STDY = entropy_from(Y2Y2)
+            HX, STDX = entropy_from(YY)
+            print("HXY", HXY,  "HY", HY, "HX", HX, "HX+HY", HX + HY, "HXY- HY", HXY - HY)
+            return HXY - HY, STDXY
         else: 
-            YY = 0.5 * YY + 0.5 * Y2Y2
+            #YY = 0.5 * YY + 0.5 * Y2Y2
+            YY2 = YY * Y2Y2
+            HXY, STDXY = entropy_from(YY2)
+            HY, STDY = entropy_from(Y2Y2)
+            HX, STDX = entropy_from(YY)
+            print("HXY", HXY,  "HY", HY, "HX", HX, "HX+HY", HX + HY, "HXY- HY", HXY - HY)
+            return HXY - HX, STDXY
     
     if type_mask is not None:
         YY = np.where(type_mask == 1, 1.0, YY)
-        
-    if mode == 'sampling': 
-        YY = YY / n
-        
-    else: 
-        # print("probs len ", len(probs))
-        YY = kernel(Y, Y).astype(np.float64)
-        D = np.diag(np.sqrt(probs))
-        YY = D @ YY @ D
-
     
-    eigenvalues = np.linalg.eigvalsh(YY)
-    eigenvalues = eigenvalues[eigenvalues > eps]
-    if eigenvalues.size == 0:
-        return 0.0
+    return entropy_from(YY)
+        
+    # if mode == 'sampling': 
+    #     # normalize the kernel
+    #     YY = YY / n
+        
+    # else: 
+    #     probs = np.array(probs)
+    #     probs = probs / probs.sum()
+    #     # normalize the kernel
+    #     D = np.diag(np.sqrt(probs))
+    #     YY = D @ YY @ D
 
-    # eigenvalues = eigenvalues / eigenvalues.sum()
-    return float(-np.sum(eigenvalues * np.log(eigenvalues)))
+    # eigenvalues = np.linalg.eigvalsh(YY)
+    # eigenvalues = eigenvalues[eigenvalues > eps]
+    # if eigenvalues.size == 0:
+    #     return 0.0
+
+    # # eigenvalues = eigenvalues / eigenvalues.sum()
+    # return float(-np.sum(eigenvalues * np.log(eigenvalues)))
