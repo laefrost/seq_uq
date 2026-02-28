@@ -136,9 +136,16 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, probs, 
             semantic_ids = ids['cluster_ids']
             topic_ids = topic['topic_ids']
             pe_topics = predictive_entropy_per_topic(semantic_ids, topic_ids, probs_step)
-            #print('pe per topic: ', pe_topics)
             cond_pe = predictive_cond_entropy(topic_ids, pe_topics)
-            entropies.append(cond_pe)
+            probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
+            pe = predictive_entropy_rao(probs_per_semantic_id)
+            
+            probs_per_claim_id = logsumexp_by_id(topic_ids, probs=probs_step, agg='sum_normalized')
+            pe_claim = predictive_entropy_rao(probs_per_claim_id)
+            cond_pe2 = pe - pe_claim
+            print("cond pe og", cond_pe, "muinus", cond_pe2)
+            
+            entropies.append(cond_pe2)
     else: 
         for ids, probs_step in zip(cluster_ids_across_steps, probs): 
             # if mode == 'complete':
