@@ -109,11 +109,15 @@ def normalize_kernel(K):
 def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=1), type_mask = None, mode = 'sampling', probs = None, eps=1e-10, Y2 = None, combination_mode = "additive"): 
     
     def entropy_from(K):
+        std = K.std()
         if mode == 'sampling':
             K = K / n
         else:
+            print("probs before: ", probs)
             p = np.array(probs, dtype=np.float64)
             p = p / p.sum()
+            print(np.sum(probs))
+            print("Probs: ", probs)
             D = np.diag(np.sqrt(p))
             K = D @ K @ D
             
@@ -131,7 +135,7 @@ def vne(Y, kernel=lambda x, y: metrics.pairwise.rbf_kernel(x, y, gamma=1), type_
         else: 
             vne = 0#-np.sum(evals * np.log(evals))
             
-        return vne, K.std() #float(-np.sum(evals * np.log(evals)))
+        return vne, std #float(-np.sum(evals * np.log(evals)))
     
     YY = kernel(Y, Y).astype(np.float64)
     

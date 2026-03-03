@@ -117,9 +117,11 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
         else: 
             used_logits = logits
 
-        probs = torch.softmax(used_logits, dim=-1) 
+        probs = torch.softmax(used_logits, dim=-1)
+        #print("probs before", probs)
         
         if method == "sampling":   
+            
             sampled_ids = torch.multinomial(probs, num_samples=sampling_k, replacement=True)
         else: 
             # sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
@@ -148,8 +150,13 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
             nucleus_counts = in_nucleus.sum(dim=-1, keepdim=True)
             final_mask = torch.where(nucleus_counts > max_k, topk_mask, in_nucleus)
             sampled_ids = sorted_indices[final_mask]
-        
-            # print(len(sampled_ids))
+            masked_logits = sorted_logits.masked_fill(~final_mask, float('-inf'))
+            masked_probs = torch.softmax(masked_logits, dim=-1) 
+            scaled_probs = torch.zeros_like(sorted_probs.squeeze())    # (vocab,)
+            probs = scaled_probs.scatter(0, sorted_indices.squeeze(), masked_probs.squeeze(0))
+            
+            #print(sampled_ids)
+            #print(probs.shape, probs.sum(dim=-1))
         
         current_prob = float(probs[gen_ids[i]].item())
         
@@ -165,7 +172,7 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
             s_str.append(token_str)
             token_probs.append(token_prob)
         
-        # print("tokenprobs ", token_probs)
+        #print("tokenprobs ", token_probs)
         
         ln_prob = -np.log(current_prob)
         log_vals = torch.where(

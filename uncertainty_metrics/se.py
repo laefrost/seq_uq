@@ -69,6 +69,7 @@ def predictive_entropy_per_topic(semantic_ids, topic_ids, probs):
             sum_token_prob = np.sum(id_prob)
             # basically the cluster probability 
             prob_norm = sum_token_prob / sum_topic_probs
+            # print("Sums within topic", sum_token_prob, sum_topic_probs)
             probs_per_semantic_id.append(prob_norm)
 
         #print("normalized probs ", prob_norm)
@@ -76,6 +77,7 @@ def predictive_entropy_per_topic(semantic_ids, topic_ids, probs):
         # assert np.sum(probs_per_semantic_id) == 1
         
         cond_se = predictive_entropy_rao(probs_per_semantic_id)
+        # print("cond se per topic", topic_id, cond_se)
         assert cond_se >= 0
         entropies_per_topic.append(cond_se)
         
@@ -113,7 +115,12 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
     return probs_per_semantic_id
 
 def predictive_entropy_rao(probs):
-    entropy = - np.sum(probs * np.log(probs))
+    log_vals = np.where(
+            probs == 0,
+            np.zeros_like(probs),
+            np.log(probs)
+        )
+    entropy = - np.sum(probs * log_vals)
     return entropy
 
 def predictive_cond_entropy(topics, pred_entropies_per_topic):
@@ -143,7 +150,7 @@ def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, probs, 
             probs_per_claim_id = logsumexp_by_id(topic_ids, probs=probs_step, agg='sum_normalized')
             pe_claim = predictive_entropy_rao(probs_per_claim_id)
             cond_pe2 = pe - pe_claim
-            print("cond pe og", cond_pe, "muinus", cond_pe2)
+            # print("cond pe og", cond_pe, "muinus", cond_pe2)
             
             entropies.append(cond_pe2)
     else: 
@@ -489,10 +496,10 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
         topic_ids_across_steps.append({'topic_ids' : topic_ids})
         probs_across_steps.append(probs)
         # cluster_weights_across_steps.append({'cluster_weights' : cluster_weights})
-        print("Probs", probs)
-        print("Cluster ids", cluster_ids)
-        print("Topic IDS", topic_ids)
-        print(unique_elements)
+        #print("Probs", probs)
+        #print("Cluster ids", cluster_ids)
+        #print("Topic IDS", topic_ids)
+        #print(unique_elements)
         assert len(cluster_ids) == len(unique_elements) == len(probs)
         
         #print(probs)

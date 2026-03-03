@@ -21,6 +21,7 @@ import numpy as np
 from finetuning.utils import WeightedCosineSimilarityLoss, CustomEvaluator, DeltaCosineSimilarityLoss, DeltaEvaluator, DeltaCoSENTLoss, EuclideanDistanceLoss
 from finetuning.models import create_model_with_weighted_pooling
 from torch.utils.data import DataLoader, WeightedRandomSampler
+from collections import Counter
 
 # Set the log level to INFO
 logging.basicConfig(
@@ -105,10 +106,10 @@ def load_and_clean_data_rbf(train_path: str, val_path: str, approach = 'og'):
 
 from datasets import concatenate_datasets
 
-def oversample_contradictions(train_dataset, label_col="label", target_frac=0.2, seed=42):
+def oversample_min_classes(train_dataset, label_col="label", target_value = -1, target_frac=0.2, seed=42):
     # split
-    ds_c = train_dataset.filter(lambda x: x[label_col] == -1)
-    ds_o = train_dataset.filter(lambda x: x[label_col] != -1)
+    ds_c = train_dataset.filter(lambda x: x[label_col] == target_value)
+    ds_o = train_dataset.filter(lambda x: x[label_col] != target_value)
 
     n_c = len(ds_c)
     n_o = len(ds_o)
@@ -169,7 +170,21 @@ def load_and_clean_data_cosine(train_path: str, val_path: str, approach = 'og', 
         val_df['score'] = np.where(val_df['score'].isin([1, -1]), 1, -1)
     elif kernel_task == "cluster": 
         train_df = train_df.loc[train_df["score"] != 0]
-        val_df = val_df.loc[val_df["score"] != 0]     
+        val_df = val_df.loc[val_df["score"] != 0]  
+    elif kernel_task == "dispersion":
+        train_df['score'] = np.where(train_df['score'].isin([0, -1]), 0, 1)
+        val_df['score'] = np.where(val_df['score'].isin([0, -1]), 0, 1)
+    elif kernel_task == "contradiction": 
+        train_df['score'] == np.select([
+            train_df['score'] == -1, 
+            train_df['score'] == 0,],
+            [0, np.sqrt(2) / 2], default=1)
+        
+        val_df['score'] == np.select([
+            val_df['score'] == -1, 
+            val_df['score'] == 0,],
+            [0, np.sqrt(2) / 2], default=1)
+       
     
     # Log sample data to verify format
     logger.info(f"Sample train data:\n{train_df.head(2)}")
@@ -250,24 +265,16 @@ def create_training_args(run_name: str, num_epochs: int = 10, batch_size: int = 
         warmup_ratio=0.1,
         fp16=False,
         bf16=True,
-        # Evaluation and saving
         eval_strategy="steps",
         eval_steps=100,
         save_strategy="steps",
         save_steps=100,
         save_total_limit=2,
-        # Logging
-        logging_steps=25,
+        logging_steps=50,
         logging_first_step=True,
         run_name=run_name,
-        # Additional useful parameters
         load_best_model_at_end=True,
-        # metric_for_best_model="eval_custom_spearman_cosine",
-        # greater_is_better=greater_is_better,
-        # metric_for_best_model='eval_evaluator', 
-        # greater_is_better=True
-        # greater_is_better=True
-        metric_for_best_model='eval_loss',
+        metric_for_best_model='eval_loss', # eval_custom_pearson_cosine 
         greater_is_better=False
     )
 
@@ -283,23 +290,30 @@ def main():
         val_path = 'finetuning/val.xlsx'
         
         
-        num_epochs = 7
-        batch_size = 128
+        num_epochs = 3
+        batch_size = 32
         use_lora = True
         loss_type = "cosent" 
         approach = 'emb'
         objective = "cosine"
-        kernel_task = "og"
+        kernel_task = "contradiction"
         use_weighted_approach = False
+        target_value = 1
         
         # Load data
         if objective == 'cosine':
             train_dataset, eval_dataset = load_and_clean_data_cosine(train_path, val_path, approach, kernel_task)
-            train_dataset = oversample_contradictions(train_dataset, label_col="score", target_frac=0.4)
+            logger.info("Train DS class districution before:", train_dataset.to_pandas()["score"].value_counts())
+            train_dataset = oversample_min_classes(train_dataset, label_col="score", target_frac=0.4, target_value=0)
+            logger.info("Train DS class districution after:", train_dataset.to_pandas()["score"].value_counts())
+            train_dataset = oversample_min_classes(train_dataset, label_col="score", target_frac=0.4, target_value=1)
+            logger.info("Train DS class districution after:", train_dataset.to_pandas()["score"].value_counts())
         elif objective == 'rbf': 
             train_dataset, eval_dataset = load_and_clean_data_rbf(train_path, val_path, approach)
-            train_dataset = oversample_contradictions(train_dataset, label_col="label", target_frac=0.4)
-        
+            logger.info("Train DS class districution before:", Counter(train_dataset["label"]))
+            train_dataset = oversample_min_classes(train_dataset, label_col="label", target_frac=0.4, target_value=target_value)
+            logger.info("Train DS class districution after:", Counter(train_dataset["label"]))
+
         # Setup model
         model, model_name_only = setup_model(model_name, use_lora=use_lora, use_weighted_approach = use_weighted_approach)
         
@@ -368,7 +382,7 @@ def main():
         logger.info(f"Base model score: {base_score}")
         
         # Setup training arguments
-        run_name = f"{model_name_only}-peft-weighted_lora-7" if use_lora else model_name_only
+        run_name = f"{model_name_only}-{kernel_task}-peft-weighted_lora_neutral" if use_lora else model_name_only
         args = create_training_args(run_name, num_epochs, batch_size)
         
         # Create trainer
