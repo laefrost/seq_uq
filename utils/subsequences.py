@@ -3,7 +3,16 @@ from copy import deepcopy
 import torch
 import re
 import itertools
+import random
 
+SEED = 6400
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True) 
 
 def remove_subsequences(sequences, probs, probs_tokens):
     keep = [True] * len(sequences)
@@ -34,8 +43,10 @@ def generate_words(token_ids, tokenizer):
 
     for token in token_ids:  
         token_text = tokenizer.convert_ids_to_tokens(token, skip_special_tokens = False)
-        if token_text.startswith((',', '.', '!', "\"", "?", ";", ":", "(", ")", "`", "´", '\u2581(', '</s>', 
-                                  '\u2581\"', '\u2581(', '\u2581\'', "\u2581`", "\u2581´" )): #or token_text in (',', '.', '!', '"', '?', ';', ':', "'", '(', ')', '</s>'):
+        if token_text.startswith((',', '.', '!', "\"", "?", ";", ":", "(", ")", "`", "´", 
+                                  '\u2581(', '</s>', '\u2581\"', '\u2581(', '\u2581\'', "\u2581`", "\u2581´", 
+                                  '\u0120(', '<|im_end|>', '\u0120\"', '\u0120(', '\u0120\'', "\u0120`", "\u0120´", 
+                                  '<|end|>')): #or token_text in (',', '.', '!', '"', '?', ';', ':', "'", '(', ')', '</s>'):
             if current_text_tokens:
                 word = tokenizer.convert_tokens_to_string(current_text_tokens)
                 tokens_ids_across_words.append(tokens_ids_per_word)
@@ -43,7 +54,7 @@ def generate_words(token_ids, tokenizer):
             start_new = True
             tokens_ids_per_word = [token]
             current_text_tokens = [token_text]
-        elif token_text.startswith(' ') or token_text.startswith('\u2581') or start_new:
+        elif token_text.startswith(' ') or token_text.startswith('\u2581') or token_text.startswith('\u0120') or start_new:
             # Save previous word if it exists
             if current_text_tokens:
                 word = tokenizer.convert_tokens_to_string(current_text_tokens)
@@ -106,8 +117,8 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
         s_str = []
         seq_step_decoded = []
         
-        current_seq = items['current_seq']
-        prev_seq = items['prev_seq']
+        current_seq = items['current_seq'].copy()
+        prev_seq = items['prev_seq'].copy()
         
         logits = items['logits']
         
@@ -117,12 +128,32 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
         else: 
             used_logits = logits
 
-        probs = torch.softmax(used_logits, dim=-1)
+        probs_og = torch.softmax(used_logits, dim=-1)
         #print("probs before", probs)
         
         if method == "sampling":   
+            sampled_ids = torch.multinomial(probs_og, num_samples=sampling_k, replacement=True)
+            probs = probs_og
+            current_prob = float(probs[gen_ids[i]].item())
+        elif method == "top_k":
+            # Get the top-k logits and their indices
+            topk_logits, topk_indices = torch.topk(used_logits.squeeze(0), k=sampling_k)
             
-            sampled_ids = torch.multinomial(probs, num_samples=sampling_k, replacement=True)
+            # Recompute probabilities over only the top-k tokens
+            topk_probs = torch.softmax(topk_logits, dim=-1)
+            
+            # Scatter back to full vocab size so downstream prob lookups work correctly
+            full_probs = torch.zeros_like(probs_og)
+            full_probs.scatter_(0, topk_indices, topk_probs)
+            probs = full_probs
+            sampled_ids = topk_indices
+            print(probs)
+            print(sampled_ids)
+            print("Current prob ", float(probs[gen_ids[i]].item()))
+            if float(probs[gen_ids[i]].item()) == 0: 
+                current_prob = probs_og[gen_ids[i]].item()
+            else: 
+                current_prob = float(probs[gen_ids[i]].item())
         else: 
             # sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
             # sorted_probs = F.softmax(sorted_logits, dim=-1)
@@ -157,12 +188,17 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
             
             #print(sampled_ids)
             #print(probs.shape, probs.sum(dim=-1))
-        
-        current_prob = float(probs[gen_ids[i]].item())
+            if float(probs[gen_ids[i]].item()) == 0: 
+                current_prob = float(probs_og[gen_ids[i]].item())
+            else: 
+                current_prob = float(probs[gen_ids[i]].item())
         
         for token_id in sampled_ids.tolist():
             token_str = tokenizer.decode([token_id], skip_special_tokens=False)
             token_prob = float(probs[token_id].item())
+            if token_prob == 0:
+                print("AAAAAAAAAAAAAAAAAAAAAAAACHTUNG", token_id)
+                token_prob = 0.0000001
             tmp_tokens = deepcopy(prev_seq)
             tmp_tokens.extend([token_id])
             seq_step.append(tmp_tokens)
@@ -180,7 +216,6 @@ def generate_subsequences(step_sequences, tokenizer, gen_ids, sampling_k = 10, s
             torch.zeros_like(probs),
             torch.log(probs)
         )
-
         entropy = - torch.sum(probs * log_vals)
         
         current_probs.append(current_prob)
@@ -207,7 +242,6 @@ def generate_word_subsequences(seq_tokens, generated_words, word_ids, question, 
     text_and_question = question + ' ' + generated_text
     prev_seq = ""
     for w, word in enumerate(generated_words):
-        print("---- ", word)
         ids = word_ids[w]
         if len(ids) == 1:
             seq_data = seq_tokens[seq_idx]
@@ -233,7 +267,6 @@ def generate_word_subsequences(seq_tokens, generated_words, word_ids, question, 
             # das hier checken
             for i in list(range(seq_idx, end_idx)):
                 seq_data = seq_tokens[i]
-                print(seq_data['alternative_tokens_str'])
                 n  = len(seq_tokens[i]['alternative_sequence_decoded'])
                 entropies.append(seq_data['entropy'])
                 prev_probs = [prev_prob] * n 

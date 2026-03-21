@@ -100,6 +100,9 @@ def get_parser():
         "--eval_type", default='fact_score', type=str)
     
     parser.add_argument(
+        "--kernel", default='cosine', type=str)
+    
+    parser.add_argument(
         "--compute_uncertainties", default=False,
         action=argparse.BooleanOptionalAction,
         help='Trigger compute_uncertainty_measures.py')

@@ -24,6 +24,7 @@ class LLM():
             self.client = OpenAI()
             self.model_id = model_id
         else: 
+            self.model_id = model_id
             if 'mistral' in model_id.lower():
                 self.tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -61,6 +62,28 @@ class LLM():
                     device_map="auto",
                     torch_dtype=torch.float16,
                 )
+            
+            if 'qwen' in model_id.lower():
+                self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    device_map="auto",
+                    torch_dtype=torch.float16,
+                )
+
+            elif 'phi' in model_id.lower():
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    model_id,
+                    trust_remote_code=True
+                )
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    device_map="auto",
+                    torch_dtype=torch.float16,
+                    trust_remote_code=True,
+                    attn_implementation="eager"
+                    #attn_implementation="flash_attention_2",  # uncomment if flash-attn is installed
+    )
     
     def predict(self, prompt, temperature = 0.9, return_all = False, response_format = None): 
         if self.storage_type == 'hf_inference': 
@@ -75,107 +98,153 @@ class LLM():
         
         elif self.storage_type == "open_ai_api":
             message = [{"role": "user", "content": prompt}]
-            
-            # TODO: Insert response api
-            # result = self.client.chat.completions.create(
-            #     model=self.model_id,
-            #     response_format = response_model,
-            #     messages=message, 
-            #     temperature=temperature
-            #     )
             result = self.client.responses.create(
                 model=self.model_id,
                 input= message,
                 text = {
                     "format" : response_format}
-                #temperature=temperature
-                # reasoning={
-                #     "effort": "none"
-                #     }
                 )
             return result.output_text  
         
         else: 
-            chat = [
-                {"role": "user", "content": prompt}
-            ]
-            #inputs = self.tokenizer(prompt, return_tensors="pt")
-            #inputs = {k_: v_.to(self.model.device) for k_, v_ in inputs.items()}
+            if 'mistral' in self.model_id.lower(): 
+                chat = [
+                    {"role": "user", "content": prompt}
+                ]
+                
+                encoded = self.tokenizer.apply_chat_template(
+                    chat,
+                    add_generation_prompt=True,
+                    return_tensors="pt",
+                    return_dict=True
+                ).to(self.model.device)
+
+                # Set pad_token_id if needed
+                if self.tokenizer.pad_token_id is None:
+                    self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+
+                with torch.no_grad():
+                    out = self.model.generate(
+                        **encoded,  # Unpacks input_ids and attention_mask
+                        do_sample=True,
+                        temperature=temperature,
+                        top_p=0.9,
+                        return_dict_in_generate=True,
+                        output_scores=True, 
+                        output_logits=True, 
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        max_new_tokens=5000,
+                    )
+
+                # Get prompt length
+                prompt_length = encoded['input_ids'].shape[1]
+                
+                full_seq = out.sequences[0] 
+                # print(prompt_len, len(full_seq))
+                gen_ids = full_seq[prompt_length:].tolist()
+                generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True)
+                if return_all: 
+                    return generated_text, gen_ids, out
+                else: return generated_text
             
-            encoded = self.tokenizer.apply_chat_template(
-                chat,
-                add_generation_prompt=True,
-                return_tensors="pt",
-                return_dict=True
-            ).to(self.model.device)
-
-            # Set pad_token_id if needed
-            if self.tokenizer.pad_token_id is None:
-                self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-
-            with torch.no_grad():
-                out = self.model.generate(
-                    **encoded,  # Unpacks input_ids and attention_mask
-                    do_sample=True,
-                    temperature=temperature,
-                    top_p=0.9,
-                    return_dict_in_generate=True,
-                    output_scores=True, 
-                    output_logits=True, 
-                    pad_token_id=self.tokenizer.pad_token_id,
-                    max_new_tokens=5000,
+            if 'qwen' in self.model_id.lower(): 
+                chat = [
+                    {"role": "user", "content": prompt}
+                ]
+                
+                # Two-step tokenization required to pass enable_thinking=False
+                text = self.tokenizer.apply_chat_template(
+                    chat,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False  # <-- disables <think> blocks entirely
                 )
+                encoded = self.tokenizer(
+                    [text],
+                    return_tensors="pt",
+                    #return_dict=True
+                ).to(self.model.device)
 
-            # Get prompt length
-            prompt_length = encoded['input_ids'].shape[1]
-            
-            full_seq = out.sequences[0] 
-            # print(prompt_len, len(full_seq))
-            gen_ids = full_seq[prompt_length:].tolist()
-            generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True)
-            if return_all: 
-                return generated_text, gen_ids, out
-            else: return generated_text
+                if self.tokenizer.pad_token_id is None:
+                    self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+
+                with torch.no_grad():
+                    out = self.model.generate(
+                        **encoded,
+                        do_sample=True,
+                        temperature=0.7,   # recommended for non-thinking mode
+                        top_p=0.8,         # recommended for non-thinking mode
+                        top_k=20,          # recommended for non-thinking mode
+                        return_dict_in_generate=True,
+                        output_scores=True,
+                        output_logits=True,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        max_new_tokens=5000,
+                    )
+
+                prompt_length = encoded['input_ids'].shape[1]
+                full_seq = out.sequences[0]
+                gen_ids = full_seq[prompt_length:].tolist()
+                generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True)
+
+                if return_all:
+                    return generated_text, gen_ids, out
+                else:
+                    return generated_text
+                
+            if 'phi' in self.model_id.lower():
+                chat = [
+                    {"role": "system", "content": "You are a helpful AI assistant."},
+                    {"role": "user", "content": prompt}
+                ]
+                
+                text = self.tokenizer.apply_chat_template(
+                    chat,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    # no enable_thinking needed — Phi has no thinking mode
+                )
+                encoded = self.tokenizer(
+                    [text],
+                    return_tensors="pt"
+                ).to(self.model.device)
+
+                if self.tokenizer.pad_token_id is None:
+                    self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+
+                with torch.no_grad():
+                    out = self.model.generate(
+                        **encoded,
+                        do_sample=True,
+                        temperature=temperature,
+                        top_p=0.9,
+                        return_dict_in_generate=True,
+                        output_scores=True,
+                        output_logits=True,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        max_new_tokens=5000,
+                    )
+
+                prompt_length = encoded['input_ids'].shape[1]
+                full_seq = out.sequences[0]
+                gen_ids = full_seq[prompt_length:].tolist()
+                generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True)
+
+                if return_all:
+                    return generated_text, gen_ids, out
+                else:
+                    return generated_text
         
     def generate_with_topk(self, prompt: str, k: int = 25, max_new_tokens: int = 128, temperature: float = 0.7, top_p: float = 0.9, do_sample: bool = True, seed: int | None = 42,):
-        # if seed is not None:
-        #     set_seed(seed)
-
         generated_text, gen_ids, out = self.predict(prompt=prompt, temperature=temperature, return_all=True)
-        #print('generated text: ', generated_text)
         step_samples = []
         for step_idx, step_scores in enumerate(out.logits):
-            # print('gen_id: ', gen_ids[step_idx])
             logits = step_scores[0]                  
             probs = torch.softmax(logits, dim=-1)     
-
-            # # TODO Das wsl in die neue Mehtode
-            # sampled_ids = torch.multinomial(probs, num_samples=k, replacement=True)
-            # sampled = []
-            # #print('sampled ids: ', sampled_ids)
-            # current_probs = float(probs[gen_ids[step_idx]].item())
-
-            
-            # TODO Das wsl in die neue Mehtode
-            # for tok_id in sampled_ids.tolist():
-            #     tok_str = self.tokenizer.decode([tok_id], skip_special_tokens=False)
-            #     sampled.append({
-            #         "token_id": tok_id,
-            #         "token_str": tok_str,
-            #         "prob": float(probs[tok_id].item()),
-            #     })
-                # if tok_id == gen_ids[step_idx]: 
-                #     current_probs = float(probs[tok_id].item())
             step_samples.append({'current_seq' : gen_ids[:step_idx+1],
-                                 'prev_seq' : gen_ids[:step_idx],
-                                 # 'current_seq_decoded' : self.tokenizer.decode(gen_ids[:step_idx], skip_special_tokens=True),
-                                 # 'current_prob' : current_probs, 
-                                 #'sampled_tokens' : sampled, 
+                                 'prev_seq' : gen_ids[:step_idx], 
                                  'logits' : logits.detach().cpu()})
 
-        # gen_ids_decoded = []
-        # for id in gen_ids:
-        #    gen_ids_decoded.append(self.tokenizer.decode(id, skip_special_tokens=True)) 
         gen_ids_decoded = self.tokenizer.convert_ids_to_tokens(gen_ids)
         
         generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=False)
@@ -199,7 +268,6 @@ class LLM():
     
     def position_eval_prompt_all(self, question, answer, token_list):
         prompt = prompt = f"""You are doing a token-level semantics attribution task. Your goal is to identify which tokens carry semantic meaning for the answer.\n
-
             Inputs: 
             Question: {question}
             Answer: {answer}
@@ -245,7 +313,7 @@ class LLM():
         return prompt
     
     def position_eval_prompt_bios(self, question, text, answer_false, token_list):
-        prompt = prompt = f"""You are doing a token-level error attribution task. Your goal is to identify which tokens directly cause the fact to be factually incorrect within the context of the generated answer.\n
+        prompt = f"""You are doing a token-level error attribution task. Your goal is to identify which tokens directly cause the fact to be factually incorrect within the context of the generated answer.\n
 
             Inputs: 
             Question: {question}
