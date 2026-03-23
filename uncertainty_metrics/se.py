@@ -2,78 +2,23 @@ import numpy as np
 import nltk
 
 nltk.download('punkt')
-
-def get_semantic_ids(strings_list, model, strict_entailment=False, example=None, mode = 'adapted'):
-    def are_equivalent(text1, text2):
-        implication_1, implication_2 = None, None
-        while implication_1 not in [0, 1, 2]: 
-            implication_1 = model.check_implication(text1, text2, question=example, mode = mode)
-        
-        while implication_2 not in [0, 1, 2]:
-            implication_2 = model.check_implication(text2, text1, question=example, mode = mode)  
-        assert (implication_1 in [0, 1, 2]) and (implication_2 in [0, 1, 2])
-
-        if strict_entailment:
-            semantically_equivalent = (implication_1 == 2) and (implication_2 == 2)
-
-        else:
-            implications = [implication_1, implication_2]
-            # Check if none of the implications are 0 (contradiction) and not both of them are neutral.
-            semantically_equivalent = (0 not in implications) and ([1, 1] != implications)
-
-        #print('semantically equivalent: ', semantically_equivalent)
-        
-        return semantically_equivalent
-
-    # Initialise all ids with -1.
-    semantic_set_ids = [-1] * len(strings_list)
-    # Keep track of current id.
-    next_id = 0
-    for i, string1 in enumerate(strings_list):
-        # Check if string1 already has an id assigned.
-        if semantic_set_ids[i] == -1:
-            # If string1 has not been assigned an id, assign it next_id.
-            semantic_set_ids[i] = next_id
-            for j in range(i+1, len(strings_list)):
-                # Search through all remaining strings. If they are equivalent to string1, assign them the same id.
-                if are_equivalent(string1, strings_list[j]):
-                    semantic_set_ids[j] = next_id
-            next_id += 1
-
-    assert -1 not in semantic_set_ids
-    return semantic_set_ids
-
-def predictive_entropy_per_topic(semantic_ids, topic_ids, probs): 
-    topic_ids = np.asarray(topic_ids)
-    semantic_ids = np.asarray(semantic_ids)
-    probs = np.asarray(probs)
-    unique_topic_ids = set(topic_ids)
-    entropies_per_topic = []
-    for topic_id in unique_topic_ids: 
-        relevant_entries = np.where(topic_ids == topic_id)[0]
-        topic_cluster_ids = semantic_ids[relevant_entries]
-        unique_topic_cluster_ids = set(topic_cluster_ids)
-        topic_probs = probs[relevant_entries]
-        sum_topic_probs = np.sum(topic_probs)
-        probs_per_semantic_id = []
-        for uid in unique_topic_cluster_ids:
-            id_indices = [pos for pos, x in enumerate(semantic_ids) if x == uid]
-            id_prob = [probs[i] for i in id_indices]
-            sum_token_prob = np.sum(id_prob)
-            prob_norm = sum_token_prob / sum_topic_probs
-            probs_per_semantic_id.append(prob_norm)
-        
-        cond_se = predictive_entropy_rao(probs_per_semantic_id)
-        assert cond_se >= 0
-        entropies_per_topic.append(cond_se)
-        
-    return entropies_per_topic
             
 # Adapted from: https://github.com/jlko/semantic_uncertainty
-def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
-    """Sum probabilities with the same semantic id.
+def logsumexp_by_id(semantic_ids, probs):
+    """
+    Aggregate probabilities by semantic ID.
 
-    Log-Sum-Exp because input and output probabilities in log space.
+    Groups samples by their semantic cluster assignment and sums the
+    probabilities within each cluster, normalizing by the total probability
+    mass across all clusters.
+
+    Args:
+        semantic_ids (list[int]): Per-sample semantic cluster IDs. Must be
+            contiguous integers starting from 0 (i.e. [0, 1, ..., K-1]).
+        probs (array-like): Per-sample probability values, shape (N,).
+
+    Returns:
+        list[float]: Normalized probability mass for each unique semantic ID.
     """
     unique_ids = sorted(list(set(semantic_ids)))
     assert unique_ids == list(range(len(unique_ids)))
@@ -82,22 +27,15 @@ def logsumexp_by_id(semantic_ids, probs, agg='sum_normalized'):
     for uid in unique_ids:
         id_indices = [pos for pos, x in enumerate(semantic_ids) if x == uid]
         id_prob = [probs[i] for i in id_indices]
-        if agg == 'sum_normalized':
-            # log_<
-            # lik_norm = id_log_likelihoods - np.prod(log_likelihoods)
-            # log_lik_norm = id_log_likelihoods - np.log(np.sum(np.exp(log_likelihoods)))
-            # logsumexp_value = np.log(np.sum(np.exp(log_lik_norm)))
-            sum_token_prob = np.sum(id_prob)
-            
-            prob_norm = sum_token_prob / sum_clusters_probs
-            
-        else:
-            raise ValueError
+        sum_token_prob = np.sum(id_prob)
+        
+        prob_norm = sum_token_prob / sum_clusters_probs
         probs_per_semantic_id.append(prob_norm)
 
     return probs_per_semantic_id
 
-def predictive_entropy_rao(probs, normalize = True):
+# Adapted from: https://github.com/jlko/semantic_uncertainty
+def predictive_entropy_rao(probs):
     if len(probs) == 1: 
         return 0.0
     log_vals = np.where(
@@ -106,45 +44,96 @@ def predictive_entropy_rao(probs, normalize = True):
             np.log(probs)
         )
     entropy = - np.sum(probs * log_vals)
-    if normalize: 
-        entropy = entropy / np.log(len(probs))
     return entropy
 
-def predictive_cond_entropy(topics, pred_entropies_per_topic):
-    unique_topic_ids, counts = np.unique(topics, return_counts=True)
-    freqs = counts / counts.sum()   # P(topic)
-    entropy_vec = np.array(pred_entropies_per_topic, dtype=float)
-    cond_entropy = np.sum(freqs * entropy_vec)
-    return cond_entropy
+def compute_se_across_subsequences(cluster_ids_across_steps, probs, topics = None): 
+    """
+    Compute semantic entropy at each generation step across alternative subsequences.
 
-def compute_se_across_subsequences(cluster_ids_across_steps, seq_tokens, probs, mode = 'complete', topics = None): 
+    For each step, probabilities are aggregated by semantic cluster ID via
+    `logsumexp_by_id` and entropy is computed via `predictive_entropy_rao`.
+
+    When `topics` is provided, a claim conditional entropy is estimated.
+    Args:
+        cluster_ids_across_steps (list[dict]): One dict per step, each with a
+            'cluster_ids' key mapping to a list of integer semantic cluster assignments.
+        probs (list[list[float]]): Per-step lists of alternative sequence
+            probabilities, aligned with `cluster_ids_across_steps`.
+        topics (list[dict] | None): Optional list of per-step dicts, each with
+            a 'topic_ids' key. If provided, conditional entropy is computed
+            instead of raw semantic entropy. Default None.
+
+    Returns:
+        list[float]: One entropy (or conditional entropy) value per generation step.
+    """
     entropies = []
-    counter = 0
     if topics is not None: 
         for ids, probs_step, topic in zip(cluster_ids_across_steps, probs, topics): 
             semantic_ids = ids['cluster_ids']
             topic_ids = topic['topic_ids']
-            # pe_topics = predictive_entropy_per_topic(semantic_ids, topic_ids, probs_step)
-            # cond_pe = predictive_cond_entropy(topic_ids, pe_topics)
             
-            probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
+            probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step)
             pe = predictive_entropy_rao(probs_per_semantic_id)
             
-            probs_per_claim_id = logsumexp_by_id(topic_ids, probs=probs_step, agg='sum_normalized')
+            probs_per_claim_id = logsumexp_by_id(topic_ids, probs=probs_step)
             pe_claim = predictive_entropy_rao(probs_per_claim_id)
             cond_pe2 = pe - pe_claim
             entropies.append(cond_pe2)
     else: 
         for ids, probs_step in zip(cluster_ids_across_steps, probs): 
             semantic_ids = ids['cluster_ids']
-            probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step, agg='sum_normalized')
+            probs_per_semantic_id = logsumexp_by_id(semantic_ids, probs=probs_step)
             pe = predictive_entropy_rao(probs_per_semantic_id)
             entropies.append(pe)
-            counter = counter + 1
     return entropies
 
 
 def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapted'): 
+    """
+    Assign semantic cluster IDs and topic IDs to alternative subsequences at each
+    generation step using an NLI model.
+
+    For each step in `seq_tokens`, the function:
+        1. Extracts the last sentence of each alternative decoded sequence.
+        2. Short-circuits single unique sequence by assigning all alternatives to cluster 0.
+        3. Otherwise batches all unique sentence pairs through
+           `ellm.check_implication_batch` to obtain
+           pairwise relation scores:
+               - 2 = entailment  (same semantic cluster)
+               - 1 = neutral
+               - 0 = contradiction
+        4. Applies transitive closure over the score matrix so that entailment and contradiction chains are propagated consistently.
+        5. Assigns semantic cluster IDs by grouping mutually entailing sequences,
+           and topic IDs by grouping sequences that are either entailing or
+           contradicting.
+
+    The `mode` parameter controls how the entailment score is set:
+        - 'data': entailment_score = 1
+        - anything else: entailment_score = 2
+
+    Args:
+        seq_tokens (list[dict]): Per-step data dicts, each containing at minimum:
+            - 'alternative_sequence_question_decoded' (list[str]): Decoded
+              alternative continuations prefixed with the question.
+            - 'alternative_token_probs' (list[float]): Probability of each
+              alternative token.
+        question (str): The prompt string, prepended to decoded sequences before
+            entailment classification.
+        ellm: Entailment language model with a `check_implication_batch(pairs)`
+            method that accepts a list of (str, str) tuples and returns
+            (scores, contradiction_probs).
+        mode (str): Controls the numeric value used for the entailment relation.
+            Use 'data' for value 1, or any other string for value 2. Default 'adapted'.
+
+    Returns:
+        tuple:
+            list[dict]: Per-step dicts with key 'cluster_ids' (list[int]) —
+                semantic cluster assignment for each unique alternative.
+            list[dict]: Per-step dicts with key 'topic_ids' (list[int]) —
+                topic assignment for each unique alternative.
+            list[list[float]]: Per-step lists of unique alternative
+                token probabilities.
+    """
     cluster_ids_across_steps = []
     # cluster_weights_across_steps = []
     topic_ids_across_steps = []
@@ -158,7 +147,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
         
         unique_elements = list(set(zip(decoded_seqs, probs)))
         set_step = set(tuple(sublist) for sublist in decoded_seqs)
-        if len(unique_elements) == 1 or max(probs) > 0.99:
+        if len(unique_elements) == 1: #or max(probs) > 0.99:
             cluster_ids = [0] * len(unique_elements)
             topic_ids = [0] * len(unique_elements)
             probs = [element[1] for element in unique_elements] #[unique_elements[0][1]]
@@ -206,7 +195,7 @@ def generate_semantic_subsequence_ids(seq_tokens, question, ellm, mode = 'adapte
             
             for b in range(0, len(batched_pairs), MAX_BATCH):
                 sub = batched_pairs[b:b+MAX_BATCH]
-                scores, contr_prob = ellm.check_implication_batch(sub, question, mode)
+                scores, contr_prob = ellm.check_implication_batch(sub)
                 all_scores.extend(scores)
             
             for i, j, score_idx in pair_mappings:

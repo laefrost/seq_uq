@@ -32,24 +32,15 @@ def get_parser():
         help="Metric to assign accuracy to generations.")
 
     parser.add_argument(
-        "--model_id", type=str, default="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ", help="Model ID",
+        "--model_id", type=str, default="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ", help="LLM Model ID",
     )
     parser.add_argument(
-        "--emb_model_id", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID"
-        # choices=['all-MiniLM-L6-v2', 
-        #          'intfloat/e5-large-v2', 
-        #          'models_peft/all-MiniLM-L6-v2-peft/final',
-        #          'models_peft_og/all-MiniLM-L6-v2-peft/final']
+        "--emb_model_id", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID for disperison"
     )
     
     parser.add_argument(
-        "--emb_model_id_deltas", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID"
-        # choices=['all-MiniLM-L6-v2', 
-        #          'intfloat/e5-large-v2', 
-        #          'models_peft/all-MiniLM-L6-v2-peft/final',
-        #          'models_peft_og/all-MiniLM-L6-v2-peft/final']
+        "--emb_model_id_deltas", type=str, default="all-MiniLM-L6-v2", help="Embedding Model ID for disperison"
     )
-    
     
     parser.add_argument(
         "--eval_model_id", type=str, default="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ", help="Model ID of evaluation model",
@@ -65,18 +56,12 @@ def get_parser():
     )
     
     parser.add_argument(
-        "--consider_types", default=False,
-        action=argparse.BooleanOptionalAction,
-        help='Mask word types during UQ'
-    )
-    
-    parser.add_argument(
-        "--model_max_new_tokens", type=int, default=50,
+        "--model_max_new_tokens", type=int, default=5000,
         help="Max number of tokens generated.",
     )
     parser.add_argument(
         "--dataset", type=str, default="trivia_qa",
-        choices=['trivia_qa', 'factual_bio', 'trivia_qa_data', 'factscore_bio'],
+        choices=['trivia_qa', 'trivia_qa_data', 'factscore_bio'],
         help="Dataset to use")
     
     parser.add_argument(
@@ -84,33 +69,18 @@ def get_parser():
         
     parser.add_argument(
         "--num_samples", type=int, default=5,
-        help="Number of samples to use")
+        help="Number of samples to sample")
        
     parser.add_argument(
-        "--k", type=int, default=10,
-        help="Number of generations to use")
+        "--n", type=int, default=10,
+        help="Number of samples to use")
+    
     parser.add_argument(
         "--temperature", type=float, default=1.0,
         help="Temperature")
     
     parser.add_argument(
         "--task_type", default='qa', type=str)
-    
-    parser.add_argument(
-        "--eval_type", default='fact_score', type=str)
-    
-    parser.add_argument(
-        "--kernel", default='cosine', type=str)
-    
-    parser.add_argument(
-        "--compute_uncertainties", default=False,
-        action=argparse.BooleanOptionalAction,
-        help='Trigger compute_uncertainty_measures.py')
-    
-    parser.add_argument(
-        "--eval_answers", default=False,
-        action=argparse.BooleanOptionalAction,
-        help='Trigger eval_answers.py')
     return parser
 
 
@@ -146,16 +116,6 @@ def model_based_metric(predicted_answer, example, model):
 
     prompt += " Respond only with yes or no.\nResponse:"
 
-    
-    # # TODO: adapt that 
-    # if 'gpt' in model.model_name.lower():
-    #     predicted_answer = model.predict(prompt, 0.01)
-    # else:
-    #     predicted_answer, _, _ = model.predict(prompt, 0.01)
-    
-    # predicted_answer = None
-    # while predicted_answer == None: 
-    #    print('while')
     predicted_answer = model.predict(prompt, temperature = 0.01)
     
     print(predicted_answer)

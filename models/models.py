@@ -15,11 +15,32 @@ load_dotenv()
 
 
 class LLM(): 
+    """
+    Unified wrapper for running inference across multiple LLM backends and model families.
+
+    Supports local HuggingFace models (Mistral, Qwen, Phi, OSS), HuggingFace Inference API,
+    and the OpenAI API. Also provides utilities for NLI-based semantic comparison and
+    token-level factual error attribution.
+    """
     def __init__(self, storage_type = 'local', model_id = 'openai/gpt-oss-20b'): 
+        """
+        Initializes the LLM client or loads a local model based on the storage type.
+
+        Parameters
+        ----------
+        storage_type : str, optional
+            Backend to use. One of:
+            - 'local': loads model weights locally via HuggingFace transformers.
+            - 'hf_inference': uses the HuggingFace Inference API (requires HF_TOKEN env var).
+            - 'open_ai_api': uses the OpenAI API (requires OPENAI_API_KEY env var).
+            Default is 'local'.
+        model_id : str, optional
+            Model identifier. For 'local', determines which architecture-specific
+            loading path is used (mistral, qwen, phi, oss). Default is 'openai/gpt-oss-20b'.
+        """
         self.storage_type = storage_type
         if storage_type == 'hf_inference': 
             self.client = InferenceClient(model=model_id, api_key=os.getenv('HF_TOKEN'))
-            # self.client = InferenceClient(token="")
         elif storage_type == 'open_ai_api': 
             self.client = OpenAI()
             self.model_id = model_id
@@ -46,14 +67,6 @@ class LLM():
                     device_map="auto",
                     torch_dtype="auto",
                 )
-                # self.model = AutoModelForCausalLM.from_pretrained(
-                #     'unsloth/gpt-oss-20b-bnb-4bit',
-                #     device_map="auto",
-                #     load_in_4bit=True,
-                #     torch_dtype="auto",
-                #     trust_remote_code=True
-                # )
-                
                 
                 self.pipe = pipeline(
                     "text-generation",
@@ -82,10 +95,32 @@ class LLM():
                     torch_dtype=torch.float16,
                     trust_remote_code=True,
                     attn_implementation="eager"
-                    #attn_implementation="flash_attention_2",  # uncomment if flash-attn is installed
     )
     
     def predict(self, prompt, temperature = 0.9, return_all = False, response_format = None): 
+        """
+        Runs inference on a single prompt using the configured backend and model.
+
+        Parameters
+        ----------
+        prompt : str
+            The user prompt to send to the model.
+        temperature : float, optional
+            Sampling temperature. Higher values increase randomness. Default is 0.9.
+        return_all : bool, optional
+            If True (local models only), also returns the raw token IDs and the
+            full generation output object alongside the decoded text. Default is False.
+        response_format : dict or None, optional
+            Structured output format spec (e.g. JSON schema) passed to the API.
+            Only used for 'hf_inference' and 'open_ai_api' backends. Default is None.
+
+        Returns
+        -------
+        str
+            The generated text response.
+        tuple (str, list, GenerateOutput), optional
+            If return_all=True on a local model: (generated_text, gen_ids, full_output).
+        """
         if self.storage_type == 'hf_inference': 
             message = [{"role": "user", "content": prompt}]
             out = self.client.chat_completion(
@@ -132,15 +167,12 @@ class LLM():
                         return_dict_in_generate=True,
                         output_scores=True, 
                         output_logits=True, 
-                        pad_token_id=self.tokenizer.pad_token_id,
-                        max_new_tokens=5000,
+                        pad_token_id=self.tokenizer.pad_token_id
                     )
 
-                # Get prompt length
                 prompt_length = encoded['input_ids'].shape[1]
                 
                 full_seq = out.sequences[0] 
-                # print(prompt_len, len(full_seq))
                 gen_ids = full_seq[prompt_length:].tolist()
                 generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True)
                 if return_all: 
@@ -152,12 +184,11 @@ class LLM():
                     {"role": "user", "content": prompt}
                 ]
                 
-                # Two-step tokenization required to pass enable_thinking=False
                 text = self.tokenizer.apply_chat_template(
                     chat,
                     tokenize=False,
                     add_generation_prompt=True,
-                    enable_thinking=False  # <-- disables <think> blocks entirely
+                    enable_thinking=False
                 )
                 encoded = self.tokenizer(
                     [text],
@@ -178,8 +209,7 @@ class LLM():
                         return_dict_in_generate=True,
                         output_scores=True,
                         output_logits=True,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                        max_new_tokens=5000,
+                        pad_token_id=self.tokenizer.pad_token_id
                     )
 
                 prompt_length = encoded['input_ids'].shape[1]
@@ -201,8 +231,7 @@ class LLM():
                 text = self.tokenizer.apply_chat_template(
                     chat,
                     tokenize=False,
-                    add_generation_prompt=True,
-                    # no enable_thinking needed — Phi has no thinking mode
+                    add_generation_prompt=True
                 )
                 encoded = self.tokenizer(
                     [text],
@@ -221,8 +250,7 @@ class LLM():
                         return_dict_in_generate=True,
                         output_scores=True,
                         output_logits=True,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                        max_new_tokens=5000,
+                        pad_token_id=self.tokenizer.pad_token_id
                     )
 
                 prompt_length = encoded['input_ids'].shape[1]
@@ -234,8 +262,31 @@ class LLM():
                     return generated_text, gen_ids, out
                 else:
                     return generated_text
-        
-    def generate_with_topk(self, prompt: str, k: int = 25, max_new_tokens: int = 128, temperature: float = 0.7, top_p: float = 0.9, do_sample: bool = True, seed: int | None = 42,):
+   
+    def generate_with_topk(self, prompt: str, temperature: float = 0.7):
+        """
+        Generates text and returns per-step logit information for all generated tokens.
+
+        Parameters
+        ----------
+        prompt : str
+            Input prompt for generation.
+        temperature : float, optional
+            Sampling temperature. Default is 0.7.
+        Returns
+        -------
+        generated_text : str
+            Full decoded generated text (including special tokens).
+        step_samples : list of dict
+            Per-step data, each containing:
+            - 'current_seq': token IDs up to and including the current step.
+            - 'prev_seq': token IDs up to the previous step.
+            - 'logits': CPU tensor of raw logits at this step.
+        gen_ids : list of int
+            Token IDs of the generated sequence.
+        gen_ids_decoded : list of str
+            Human-readable token strings corresponding to gen_ids.
+        """
         generated_text, gen_ids, out = self.predict(prompt=prompt, temperature=temperature, return_all=True)
         step_samples = []
         for step_idx, step_scores in enumerate(out.logits):
@@ -250,22 +301,7 @@ class LLM():
         generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=False)
         return generated_text, step_samples, gen_ids, gen_ids_decoded
     
-    # ------------------ methods for factual eval
-    def validate_response(self, response, tokens, response_format): 
-        validate(instance=response, schema=response_format)
-        mappings = response["mappings"]
-
-        if len(tokens) != len(mappings):
-            raise ValueError("Token count mismatch")
-
-        for i, (expected, actual) in enumerate(zip(tokens, mappings)):
-            if expected != actual["token"]:
-                raise ValueError(
-                    f"Token mismatch at position {i}: "
-                    f"expected='{expected}', got='{actual['token']}'"
-                )
-    
-    
+    # ------------------ methods for factual eval    
     def position_eval_prompt_all(self, question, answer, token_list):
         prompt = prompt = f"""You are doing a token-level semantics attribution task. Your goal is to identify which tokens carry semantic meaning for the answer.\n
             Inputs: 
@@ -414,10 +450,33 @@ class LLM():
         return prompt
     
     def check_positions(self, question, answer_false, answer_true, token_list, generated_text = None, mode = 'detect_inco'):
-        # class TokenMapping(BaseModel):
-        #     mappings: dict[str, str] = Field(default_factory=dict)
-        
-        # response_model = TokenMapping()
+        """
+        Runs token-level factual attribution for a given question/answer pair.
+
+        Selects the appropriate prompt builder based on mode, then calls predict
+        with a structured JSON response format to get per-token error labels.
+
+        Parameters
+        ----------
+        question : str
+            The original question.
+        answer_false : str
+            The incorrect answer to evaluate.
+        answer_true : str
+            The correct reference answer (used in 'detect_inco' mode).
+        token_list : list of str
+            Tokens to classify.
+        generated_text : str or None, optional
+            Full generated text context (used in 'detect_inco' + bios mode). Default is None.
+        mode : str, optional
+            Attribution mode. 'detect_inco' uses true/false comparison;
+            any other value uses semantic attribution over all tokens. Default is 'detect_inco'.
+
+        Returns
+        -------
+        str or dict
+            Raw model response containing token-label mappings.
+        """
         if self.storage_type == 'hf_inference':
             response_format = {
                 "type": "json_schema",
@@ -452,8 +511,6 @@ class LLM():
                     "additionalProperties": False
                 }
             }                                
-                            
-
              
         if mode == 'detect_inco': 
             if generated_text is not None: 
@@ -463,354 +520,207 @@ class LLM():
         else: 
             prompt = self.position_eval_prompt_all(question, answer_false, token_list)
         result = self.predict(prompt = prompt, temperature = 0.01, response_format = response_format)
-        #self.validate_response(result, token_list, response_format)
-        # assert len(result.mappings) == len(token_list)
         return result
     
+    
+    # ------------------------------------------------------------ Evtl. raus?
     # ------------------- methods for NLI
-    def equivalence_prompt(self, text1, text2, question, mode = 'og'):
-        if mode == 'og': 
-            prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n"""
-            prompt += "Here are two possible partly evolved subsequences: \n"
-            prompt += f"Possible Answer 1: {text1}\nPossible Answer 2: {text2}\n"
-            prompt += "Does Possible Answer 1 semantically entail Possible Answer 2? Respond with entailment, contradiction, or neutral."""
-        else: 
-            # prompt = f"""We are evaluating partly evolved subsequences. 
-            # Will subsequence 1 semantically lead to a completley different meaning to the question than subsequence 2? Completley different means that, regradless of what tokens are added in the future, both subsequences already contradict each other at this state..
-            # Will subsequence 1 semantically lead to the same meaning to the question as subsequence 2? The same means that the most important aspects about the answer are already within the subsequences and regradless of what tokens are added in the future, this meaning will not change.
-            # Respond with contradiction if the subsequences will surely lead to different meanings, with entailment if they will lead to the same meaning and with neutral if you are unsure or one can not tell yet. If the subsequences are at the very start and you are not sure, also respond with neutral.       
-            
-            # Here are some examples: \n
-            # Example 1: \n
-            # Question: Who was the lead singer of Nirvana? \n
-            # Subsequence 1: The lead singer was Kurt \n
-            # Subsequence 2: The lead singer was Tom  \n
-            # Response: contradiction\n
-            
-            # Example 2: \n
-            # Question: Who was the lead singer of Nirvana? \n
-            # Subsequence 1: The \n
-            # Subsequence 2: Kurt \n
-            # Response: neutral\n
-            
-            # Subsequences to be analyzed: \n 
-            # Question:{question}\n 
-            # Subsequence 1: {text1}\nSubsequence 2: {text2}\n     
-            # Response: <One word only>
-            
-            # FINAL INSTRUCTIONS — READ CAREFULLY:
-            # You MUST answer using exactly ONE word.
-            # You MUST choose one of: contradiction, neutral, entailment.
-            # Do NOT explain your answer.
-            # Do NOT show your reasoning.
-            # Do NOT output analysis or internal thoughts.
-            # If you are unsure, answer: neutral.
+    # def equivalence_prompt(self, text1, text2, question, mode = 'og'):
+    #     if mode == 'og': 
+    #         prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n"""
+    #         prompt += "Here are two possible partly evolved subsequences: \n"
+    #         prompt += f"Possible Answer 1: {text1}\nPossible Answer 2: {text2}\n"
+    #         prompt += "Does Possible Answer 1 semantically entail Possible Answer 2? Respond with entailment, contradiction, or neutral."""
+    #     else:             
+    #         prompt = f"""Task:
+    #                 Compare two partial text subsequences and determine their semantic relationship
+    #                 ("contradiction", "entailment", or "neutral") based ONLY on their final token.
 
-            # FINAL ANSWER (one word only):
-            # """
-            
-            prompt1 =f"""Compare two partial text subsequences and determine their semantic relationship
-                    ("contradiction", "entailment", or "neutral") based ONLY on their final token.
+    #                 DEFINITIONS:
+    #                 - Atomic fact: An independent piece of information answering a specific aspect of the question (e.g., identity, time, place, property, event).
+    #                 - A final token refers to a atomic fact if it adds information to an already existing atmomic fact or if it is the beginning of a new, not yet covered topic so e.g. a new property, relation, event, additonal detail etc.
+
+    #                 REASONING PATH (MUST be followed):
+    #                 1. For EACH subsequence determine the atomic fact that the final token refers to or introduces.
+    #                 2. If each final token refers to a different atomic fact --> return "neutral"
+    #                 3. If both final tokens refer to the same atomic fact:
+    #                     - "contradiction": subsequences will inevitably lead to different meanings, regardless of future tokens. The last tokens make them mutually exclusive.
+    #                     (e.g. different entity names, different titles, different dates, different names, different professions etc.)
+    #                     - "entailment": The subsequences will lead to the same meaning, regardless of future tokens. The last tokens are semantically equivalent (e.g., synonyms).
+    #                     - "neutral": Cannot determine yet whether they'll diverge or converge. The last token doesn't provide enough information, or future tokens could make them equivalent despite current differences.
+    #                     (e.g. functional tokens, ordering differences within the fact itself)
                     
-                    Follow this reasoning: 
-                    1. For each subsequence, determine if the last token is semantically relevant.
-                    2. If both final tokens are semantically irrelevant, return "entailment"
-                    3. If one final token is semantically relevant and the other one is irrelevant, return "neutral"
-                    4. If both final token are semantically relevant, return:  
-                        - "contradiction": subsequences will inevitably lead to different meanings, regardless of future tokens. The last tokens make them mutually exclusive.
-                        (e.g. different entity names, different titles, different dates, different names, different professions etc.)
-                        - "entailment": The subsequences will lead to the same meaning, regardless of future tokens. The last tokens are semantically equivalent (e.g., synonyms).
-                        - "neutral": Cannot determine yet whether they'll diverge or converge. The last token doesn't provide enough information, or future tokens could make them equivalent despite current differences.
-                        (e.g. functional tokens, different topics the token refer to)
-                        
-                    Examples: 
-                    Question: Who was the lead singer of Nirvana?
-                    Subsequence 1: The lead singer was Kurt
-                    Subsequence 2: The lead singer was Tom
-                    Answer: contradiction
-                    (Both semantically relevant, different singer names --> contradiction)
+    #                 EXAMPLES:
 
-                    Question: Who was the lead singer of Nirvana?
-                    Subsequence 1: The lead singer of Nirvana, who was born
-                    Subsequence 2: The lead singer of Nirvana, who was known
-                    Answer: neutral
-                    (Both semantically relevant, but refer to different topics (birth vs. fame) --> neutral)
+    #                 Question: Who was the lead singer of Nirvana?
+    #                 Subsequence 1: The lead singer was Kurt
+    #                 Subsequence 2: The lead singer was Tom
+    #                 Answer: contradiction
+    #                 (Same atomic fact: lead singer identity. Incompatible values --> contradiction)
 
-                    Question: What color is the sky?
-                    Subsequence 1: The sky is blue
-                    Subsequence 2: The sky appears blue
-                    Answer: entailment
-                    (Both semantically irrelevant --> entailment)
+    #                 Question: Who was the lead singer of Nirvana?
+    #                 Subsequence 1: The lead singer of Nirvana, who was born
+    #                 Subsequence 2: The lead singer of Nirvana, who was known
+    #                 Answer: neutral
+    #                 (Different atomic facts: birth vs fame --> neutral)
 
-                    Question: What is the title of J.R.R. Tolkien's most famous series?
-                    Subsequence 1: The title is "
-                    Subsequence 2: The title is Lord
-                    Answer: neutral
-                    (Both semantically relevant, " just another stylistiv way of expressing a title, no fixed value yet --> neutral)
+    #                 Question: What color is the sky?
+    #                 Subsequence 1: The sky is blue
+    #                 Subsequence 2: The sky appears blue
+    #                 Answer: entailment
+    #                 (Same atomic fact, only stylistic difference in word choice --> entailment)
 
-                    Question: When did Madonna graduate?
-                    Subsequence 1: Madonna graduated in New York
-                    Subsequence 2: Madonna graduated in painting
-                    Answer: neutral
-                    (Both semantically relevant, but refer to differen topics (place vs. study subject) --> neutral)
+    #                 Question: What is the title of J.R.R. Tolkien's most famous series?
+    #                 Subsequence 1: The title is "
+    #                 Subsequence 2: The title is Lord
+    #                 Answer: neutral
+    #                 (Same atomic fact, " just another stylistiv way of expressing a title, no fixed value yet --> neutral)
 
-                    NOW ANALYZE:
+    #                 Question: When did Madonna graduate?
+    #                 Subsequence 1: Madonna graduated in New York
+    #                 Subsequence 2: Madonna graduated in painting
+    #                 Answer: neutral
+    #                 (Different atomic facts: place vs field --> neutral)
 
-                    Question: {question}
-                    Subsequence 1: {text1}
-                    Subsequence 2: {text2}
+    #                 NOW ANALYZE:
 
-                    Answer:"""
-                             
-            
-            prompt = f"""Task:
-                    Compare two partial text subsequences and determine their semantic relationship
-                    ("contradiction", "entailment", or "neutral") based ONLY on their final token.
+    #                 Question: {question}
+    #                 Subsequence 1: {text1}
+    #                 Subsequence 2: {text2}
 
-                    DEFINITIONS:
-                    - Atomic fact: An independent piece of information answering a specific aspect of the question (e.g., identity, time, place, property, event).
-                    - A final token refers to a atomic fact if it adds information to an already existing atmomic fact or if it is the beginning of a new, not yet covered topic so e.g. a new property, relation, event, additonal detail etc.
-
-                    REASONING PATH (MUST be followed):
-                    1. For EACH subsequence determine the atomic fact that the final token refers to or introduces.
-                    2. If each final token refers to a different atomic fact --> return "neutral"
-                    3. If both final tokens refer to the same atomic fact:
-                        - "contradiction": subsequences will inevitably lead to different meanings, regardless of future tokens. The last tokens make them mutually exclusive.
-                        (e.g. different entity names, different titles, different dates, different names, different professions etc.)
-                        - "entailment": The subsequences will lead to the same meaning, regardless of future tokens. The last tokens are semantically equivalent (e.g., synonyms).
-                        - "neutral": Cannot determine yet whether they'll diverge or converge. The last token doesn't provide enough information, or future tokens could make them equivalent despite current differences.
-                        (e.g. functional tokens, ordering differences within the fact itself)
-                    
-                    EXAMPLES:
-
-                    Question: Who was the lead singer of Nirvana?
-                    Subsequence 1: The lead singer was Kurt
-                    Subsequence 2: The lead singer was Tom
-                    Answer: contradiction
-                    (Same atomic fact: lead singer identity. Incompatible values --> contradiction)
-
-                    Question: Who was the lead singer of Nirvana?
-                    Subsequence 1: The lead singer of Nirvana, who was born
-                    Subsequence 2: The lead singer of Nirvana, who was known
-                    Answer: neutral
-                    (Different atomic facts: birth vs fame --> neutral)
-
-                    Question: What color is the sky?
-                    Subsequence 1: The sky is blue
-                    Subsequence 2: The sky appears blue
-                    Answer: entailment
-                    (Same atomic fact, only stylistic difference in word choice --> entailment)
-
-                    Question: What is the title of J.R.R. Tolkien's most famous series?
-                    Subsequence 1: The title is "
-                    Subsequence 2: The title is Lord
-                    Answer: neutral
-                    (Same atomic fact, " just another stylistiv way of expressing a title, no fixed value yet --> neutral)
-
-                    Question: When did Madonna graduate?
-                    Subsequence 1: Madonna graduated in New York
-                    Subsequence 2: Madonna graduated in painting
-                    Answer: neutral
-                    (Different atomic facts: place vs field --> neutral)
-
-                    NOW ANALYZE:
-
-                    Question: {question}
-                    Subsequence 1: {text1}
-                    Subsequence 2: {text2}
-
-                    Answer:"""
-        # elif mode == 'adapted': 
-        #    prompt = f"""We are evaluating partly evolved subsequences to the question \"{question}\"\n Here are two possible partly evolved subsequences: \n
-        #     Sequence 1: {text1}\nSequence 2: {text2}\n
-        #     Will Sequence 1 semantically lead to a completley different meaning to the question than Sequence 2? 
-        #     Completley different means that there is no way that both sequences can have the same semantic meaning when more tokens are added in the future.
-        #     Respond with False if the sequences will surely lead to different answers and with True if not.
-            
-        #     Example 1: \n
-        #     Question: Who was the lead singer of Nirvana? \n
-        #     Possible Answer 1: The lead singer was Kurt \n
-        #     Possible Answer 2: The lead singer was Tom  \n
-        #     Response: False
-            
-        #     Example 1: \n
-        #     Question: Who was the lead singer of Nirvana? \n
-        #     Possible Answer 1: The lead singer was Kurt \n
-        #     Possible Answer 2: The lead singer was the \n
-        #     Response: True
-        #     """
-            # prompt = f"""Task: Determine if two partial text subsequences will inevitably contradict each other based on their content so far.
-
-            #     DEFINITIONS:
-            #     - "contradiction": The subsequences have already diverged into mutually exclusive meanings that cannot be reconciled by future tokens (e.g., different factual claims about the same aspect)
-            #     - "neutral": The subsequences either could still converge to the same meaning, address different aspects that don't contradict, or differ only stylistically
-
-            #     EXAMPLES:
-            #     Question: Who was the lead singer of Nirvana?
-            #     Subsequence 1: The lead singer was Kurt
-            #     Subsequence 2: The lead singer was Tom
-            #     Answer: contradiction
-            #     Reason: Different names for the same role = incompatible factual claims
-
-            #     Question: Who was the lead singer of Nirvana?
-            #     Subsequence 1: The
-            #     Subsequence 2: Kurt
-            #     Answer: neutral
-            #     Reason: "The" could continue as "The lead singer Kurt..." - too early to determine
-
-            #     NOW ANALYZE:
-            #     Question: {question}
-            #     Subsequence 1: {text1}
-            #     Subsequence 2: {text2}
-
-            #     OUTPUT INSTRUCTIONS:
-            #     - Default to "neutral" when uncertain
-            #     - Only compare the two sequences, do not try to answer the question they refer to!
-            #     - Respond with EXACTLY ONE WORD: "contradiction" or "neutral"
-
-            #     Answer:"""
-             
-        return prompt
+    #                 Answer:"""
+    #     return prompt
             
 
-    def check_implication(self, text1, text2, question = None, mode = 'og'):
-        if question is None:
-            raise ValueError
-        prompt = self.equivalence_prompt(text1, text2, question, mode)
-        counter = 0
-        while counter < 3: 
-            response = self.predict(prompt, temperature=0.02)
-            counter = counter + 1
-            if response is not None: 
-                break
+    # def check_implication(self, text1, text2, question = None, mode = 'og'):
+    #     if question is None:
+    #         raise ValueError
+    #     prompt = self.equivalence_prompt(text1, text2, question, mode)
+    #     counter = 0
+    #     while counter < 3: 
+    #         response = self.predict(prompt, temperature=0.02)
+    #         counter = counter + 1
+    #         if response is not None: 
+    #             break
         
-        if response is not None: 
-            binary_response = response.lower()[:30]
+    #     if response is not None: 
+    #         binary_response = response.lower()[:30]
             
-            if mode == 'og':
-                if 'entailment' in binary_response:
-                    return 2
-                elif 'neutral' in binary_response:
-                    return 1
-                elif 'contradiction' in binary_response:
-                    return 0
-                else:
-                    return -1
-            elif mode == 'data': 
-                if '-1' in binary_response:
-                    return -1
-                elif '1' in binary_response:
-                    return 1
-                elif '0' in binary_response:
-                    return 0
-                else:
-                    return -100000
-            elif mode == 'adapted': 
-                if 'True' in binary_response:
-                    return 2
-                elif 'False' in binary_response:
-                    return 0
-                else:
-                    return -1
-        else: 
-            if mode == 'data': 
-                return -100000
+    #         if mode == 'og':
+    #             if 'entailment' in binary_response:
+    #                 return 2
+    #             elif 'neutral' in binary_response:
+    #                 return 1
+    #             elif 'contradiction' in binary_response:
+    #                 return 0
+    #             else:
+    #                 return -1
+    #         elif mode == 'data': 
+    #             if '-1' in binary_response:
+    #                 return -1
+    #             elif '1' in binary_response:
+    #                 return 1
+    #             elif '0' in binary_response:
+    #                 return 0
+    #             else:
+    #                 return -100000
+    #         elif mode == 'adapted': 
+    #             if 'True' in binary_response:
+    #                 return 2
+    #             elif 'False' in binary_response:
+    #                 return 0
+    #             else:
+    #                 return -1
+    #     else: 
+    #         if mode == 'data': 
+    #             return -100000
 
-    def check_implication_batch(self, batch_pairs, question, mode="data"):
-        prompts = [
-            self.equivalence_prompt(t1, t2, question=question, mode=mode)
-            for (t1, t2) in batch_pairs
-        ]
+    # def check_implication_batch(self, batch_pairs, question, mode="data"):
+    #     prompts = [
+    #         self.equivalence_prompt(t1, t2, question=question, mode=mode)
+    #         for (t1, t2) in batch_pairs
+    #     ]
         
-        chats = [
-            [{"role": "user", "content": prompt}] for prompt in prompts            
-        ]
+    #     chats = [
+    #         [{"role": "user", "content": prompt}] for prompt in prompts            
+    #     ]
         
-        
-        if self.storage_type == 'local':
-            # Apply the template to each batch element
-            batched_chats = [
-                self.tokenizer.apply_chat_template(
-                    chat,
-                    add_generation_prompt=True,
-                    tokenize=False
-                )
-                for chat in chats
-            ]
+    #     if self.storage_type == 'local':
+    #         # Apply the template to each batch element
+    #         batched_chats = [
+    #             self.tokenizer.apply_chat_template(
+    #                 chat,
+    #                 add_generation_prompt=True,
+    #                 tokenize=False
+    #             )
+    #             for chat in chats
+    #         ]
             
-            outputs = self.pipe(
-                batched_chats,
-                max_new_tokens=5000,
-                do_sample=False,
-                pad_token_id=self.tokenizer.eos_token_id,
-                return_full_text = False,
-                clean_up_tokenization_spaces = True
-            )
-        elif self.storage_type == "open_ai_api": 
-            chats = [
-                [{"role": "user", "content": prompt}] for prompt in prompts            
-            ]
+    #         outputs = self.pipe(
+    #             batched_chats,
+    #             max_new_tokens=5000,
+    #             do_sample=False,
+    #             pad_token_id=self.tokenizer.eos_token_id,
+    #             return_full_text = False,
+    #             clean_up_tokenization_spaces = True
+    #         )
+    #     elif self.storage_type == "open_ai_api": 
+    #         chats = [
+    #             [{"role": "user", "content": prompt}] for prompt in prompts            
+    #         ]
 
-            # Process each chat (OpenAI API doesn't support batching in a single call)
-            outputs = []
-            for chat in chats:
-                # response = self.client.chat.completions.create(
-                #     model=self.model_id,  # or "gpt-3.5-turbo", "gpt-4-turbo", etc.
-                #     messages=chat,
-                #     max_tokens=5000,
-                #     temperature=0,  # equivalent to do_sample=False
-                # )
-                # outputs.append(response.choices[0].message.content)
-                result = self.client.responses.create(
-                    model=self.model_id,
-                    input= chat
-                    #temperature=0
-                # reasoning={
-                #     "effort": "none"
-                #     }
-                )
-                outputs.append(result.output_text)
+    #         # Process each chat (OpenAI API doesn't support batching in a single call)
+    #         outputs = []
+    #         for chat in chats:
+    #             result = self.client.responses.create(
+    #                 model=self.model_id,
+    #                 input= chat
+    #                 #temperature=0
+    #             # reasoning={
+    #             #     "effort": "none"
+    #             #     }
+    #             )
+    #             outputs.append(result.output_text)
             
         
-        def extract_label(text, mode):
-            if mode == "data": 
-                matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
-            elif mode == "adapted": 
-                # matches = re.findall(r'\b(neutral|contradiction)\b', text, flags=re.IGNORECASE)
-                matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
-            if not matches:
-                return None
-            return matches[-1].lower()
+    #     def extract_label(text, mode):
+    #         if mode == "data": 
+    #             matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
+    #         elif mode == "adapted": 
+    #             matches = re.findall(r'\b(entailment|contradiction|neutral)\b', text, flags=re.IGNORECASE)
+    #         if not matches:
+    #             return None
+    #         return matches[-1].lower()
         
-        scores = []
-        for i, out in enumerate(outputs):
-            if self.storage_type == 'local':
-                full = out[0]["generated_text"]
-            elif self.storage_type == 'open_ai_api': 
-                full = out
-            label = extract_label(full, mode)
-            if mode == 'data':
-                mapping = {
-                    "contradiction": -1,
-                    "neutral": 0,
-                    "entailment": 1,
-                }
-                value = mapping.get(label, -100000)
-            elif mode == 'og':
-                mapping = {
-                    "contradiction": 0,
-                    "neutral": 1,
-                    "entailment": 2,
-                }
-                value = mapping.get(label, -1)
-            elif mode == 'adapted': 
-                mapping = {
-                    "contradiction": 0,
-                    "neutral": 1,
-                    "entailment": 2}                
-                value = mapping.get(label, 1)
+    #     scores = []
+    #     for i, out in enumerate(outputs):
+    #         if self.storage_type == 'local':
+    #             full = out[0]["generated_text"]
+    #         elif self.storage_type == 'open_ai_api': 
+    #             full = out
+    #         label = extract_label(full, mode)
+    #         if mode == 'data':
+    #             mapping = {
+    #                 "contradiction": -1,
+    #                 "neutral": 0,
+    #                 "entailment": 1,
+    #             }
+    #             value = mapping.get(label, -100000)
+    #         elif mode == 'og':
+    #             mapping = {
+    #                 "contradiction": 0,
+    #                 "neutral": 1,
+    #                 "entailment": 2,
+    #             }
+    #             value = mapping.get(label, -1)
+    #         elif mode == 'adapted': 
+    #             mapping = {
+    #                 "contradiction": 0,
+    #                 "neutral": 1,
+    #                 "entailment": 2}                
+    #             value = mapping.get(label, 1)
             
-            scores.append(value)
-        return scores
+    #         scores.append(value)
+    #     return scores
     
     

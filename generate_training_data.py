@@ -7,16 +7,39 @@ import torch
 from models.models import * 
 from models.nli_models import NLI
 from uncertainty_metrics.se import * 
-from uncertainty_metrics.pke import *
 from utils.subsequences import generate_subsequences
-from utils.utils import get_parser, construct_prompt, save, get_metric, setup_logger, load
+from utils.utils import get_parser, construct_prompt, save, setup_logger, load
 from data.utils import load_ds
-from compute_uncertainty_measures import main as compute_uq_main
-
 
 setup_logger()
 
 def main(args):
+    """
+    Generates LLM answers for a QA dataset and produces pairwise NLI-labeled
+    training data from sampled token subsequences.
+
+    The pipeline runs in two stages:
+    1. Answer generation: for each dataset example, the LLM generates a response
+       and extracts per-step token subsequences via sampling.
+    2. NLI labeling: for each generation step, all unique decoded subsequences
+       are paired and classified (entailment / neutral / contradiction) using an
+       NLI model. The resulting labeled pairs are saved as training data.
+
+    Intermediate generation results and final labeled entries are saved to disk
+    using the experiment name and dataset name as filename prefixes.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments. Expected fields:
+        - random_seed (int): Seed for dataset sampling and reproducibility.
+        - num_samples (int): Number of dataset examples to process.
+        - dataset (str): Dataset identifier passed to load_ds.
+        - ellm_model_id (str): HuggingFace model ID for the NLI entailment model.
+        - exp_name (str): Experiment name prefix used in output filenames.
+        - task_type (str): Task type passed to construct_prompt.
+        - k (int): Reserved for top-k sampling configuration.
+    """
     experiment_details = {'args': args}
     random.seed(args.random_seed)
 
@@ -24,7 +47,7 @@ def main(args):
     
     logging.info('Dataset loaded!')
     
-    model_id = "TheBloke/Mistral-7B-Instruct-v0.2-GPTQ" #args.model_id
+    model_id = "TheBloke/Mistral-7B-Instruct-v0.2-GPTQ"
     ellm_model_id = args.ellm_model_id
     exp_name = args.exp_name
     ds_name = args.dataset
@@ -48,23 +71,19 @@ def main(args):
             gc.collect()
             torch.cuda.empty_cache()
         it += 1
-        # print(25 * '-', s, ': ', example)
         
         prompt = construct_prompt(example['question'], task_type=task_type)
         
-        generated_text, sampled_tokens, gen_ids, gen_ids_decoded = llm.generate_with_topk(prompt=prompt, k = k, temperature = 0.9)
-        current_probs, seq_tokens = generate_subsequences(sampled_tokens=sampled_tokens, tokenizer=llm.tokenizer)
+        generated_text, step_sequences, gen_ids, gen_tokens = llm.generate_with_topk(prompt=prompt, temperature = 0.9)
+        seq_tokens_sampled = generate_subsequences(step_sequences, llm.tokenizer, gen_ids, sampling_k = k, scaling_p = None, selection_p = 0.95, method = "sampling", question = prompt)
         
         generations.append({
             'example' : example,
             'generated_text' : generated_text, 
-            'sampled_tokens' : sampled_tokens, 
-            'gen_ids' : gen_ids, 
-            'seq_tokens' : seq_tokens, 
-            'current_probs' : current_probs}
+            'seq_tokens_sampled' : seq_tokens_sampled}
         )
         
-    # del llm
+    del llm
     
     save(generations, f'{exp_name}_{ds_name}_data_generations.pkl')
     save(experiment_details, f'{exp_name}_{ds_name}_data_details.pkl')
@@ -73,26 +92,21 @@ def main(args):
     generations = load(f'{exp_name}_{ds_name}_data_generations.pkl')
     
     entries = []
-    
-    # ellm = LLM(model_id=ellm_model_id)
-    if "nli" in ellm_model_id: 
-        ellm = NLI(model_id=ellm_model_id)
-    else:  
-        ellm = LLM(model_id=ellm_model_id, storage_type='open_ai_api')
+
+    ellm = NLI(model_id=ellm_model_id)
 
     MAX_BATCH = 32
     for e, element in enumerate(generations): 
         logging.info(element['generated_text'])
         example = element['example']
         question = example['question']
-        gen_ids = element['gen_ids']
-        seq_tokens = element['seq_tokens']
-        sampled_tokens = element['sampled_tokens']
+        # seq_tokens = element['seq_tokens']
+        sampled_tokens = element['seq_tokens_sampled']
                             
-        for s, step in enumerate(seq_tokens): 
+        for s, step in enumerate(sampled_tokens): 
             decoded_seqs = step.get('alternative_sequence_decoded', None) 
             decoded_seqs = list(set(decoded_seqs))
-            prefix = llm.tokenizer.decode(step['prev_seq'], skip_special_tokens = True)
+            prefix = step.get('prev_seq_decoded', '')#llm.tokenizer.decode(step['prev_seq'], skip_special_tokens = True)
             
             if len(decoded_seqs) == 1: 
                 continue
@@ -106,28 +120,16 @@ def main(args):
                         continue
                     if i == j or string1 == string2: 
                         continue
-                    # else: 
-                        #score = ellm.check_implication(string1, string2, question=example, mode = 'data')
-                        # score2 = ellm.check_implication(string2, string1, question=example, mode = 'data')
-                    
-                    # if score1 != score2:
-                    #     score = -100000
-                    # else: 
-                    #     score = score2
                     batched_pairs.append((string1, string2))
                     checked_ids.append((i, j))
                     checked_ids.append((j, i))
                     
-            #all_scores = []
             all_labels = []
             for b in range(0, len(batched_pairs), MAX_BATCH):
                 sub = batched_pairs[b:b+MAX_BATCH]
-                labels = ellm.check_implication_batch(sub, question)
-                #all_scores.extend(scores)
+                labels = ellm.check_implication_batch(sub)
                 all_labels.extend(labels)
-                # all_scores.extend([1000] * len(sub))       
             logging.info(all_labels)    
-            # 5. Store results
             for (p1, p2), label in zip(batched_pairs, all_labels):
                 entry = {
                     'generated_text': element['generated_text'],
@@ -137,12 +139,10 @@ def main(args):
                     'prefix': prefix,
                     'text1': p1,
                     'text2': p2,
-                    #'score': score,
                     'label' : label
                 }
                 entries.append(entry)
     save(entries, f'{exp_name}_{ds_name}_data.pkl')
-    del llm
     del ellm
     
     
@@ -154,10 +154,6 @@ if __name__ == '__main__':
     if unknown:
         raise ValueError(f'Unkown args: {unknown}')
 
-    # if args.compute_uncertainties:
-    #     args.assign_new_wandb_id = False
-
-    # First sample generations from LLM.
     logging.info('STARTING `generate_training_data`!')
     main(args)
     logging.info('FINISHED `generate_training_data`!')

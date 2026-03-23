@@ -13,6 +13,13 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSequen
 load_dotenv()
 
 class NLI(): 
+    """
+    Wrapper around a Natural Language Inference (NLI) model for classifying
+    textual entailment relationships between sentence pairs.
+
+    Uses a HuggingFace pipeline internally to classify pairs as
+    entailment (2), neutral (1), or contradiction (0).
+    """
     def __init__(self, model_id='microsoft/deberta-v3-base-mnli'): 
         self.model_id = model_id    
         model = AutoModelForSequenceClassification.from_pretrained(model_id)
@@ -28,7 +35,28 @@ class NLI():
             torch_dtype="auto"
         )
 
-    def check_implication_batch(self, batch_pairs, question = None, mode="data"):
+    def check_implication_batch(self, batch_pairs):
+        """
+        Runs NLI inference on a batch of sentence pairs and returns
+        entailment labels and contradiction scores.
+
+        Parameters
+        ----------
+        batch_pairs : list of tuple of str List of (alternative1, alternative2) pairs to classify.
+        question : str or None, optional
+            Unused. Reserved for future use. Default is None.
+        mode : str, optional
+            Unused. Reserved for future use. Default is 'data'.
+
+        Returns
+        -------
+        labels : list of int
+            Predicted NLI label for each pair:
+            2 = entailment, 1 = neutral, 0 = contradiction.
+        scores : list of float
+            Contradiction score (probability) for each pair,
+            regardless of the predicted label.
+        """
         inputs = [
             {'text': t1, 
              'text_pair' : t2}
