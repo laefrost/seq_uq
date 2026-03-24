@@ -42,7 +42,7 @@ python compute_uncertainty_measures.py \
 
 ### 3. Factual Evaluation — `evaluate_answers.py`
 
-Scores each generated answer at the atomic fact level using **FactScorer**. For every unsupported fact, an evaluator LLM is queried to attribute the error to specific words and tokens in the generation. Each word also receives syntactic annotations (dependency role, subtree size, parse depth) from spaCy. Results are saved to `{exp_name}_{dataset}_evals_factwise.pkl`.
+Scores each generated answer at the atomic fact level using an adapted version of **FActScore** (Adapted:https://github.com/laefrost/FActScore/tree/main, Original: https://github.com/shmsw25/FActScore/tree/main). For every unsupported fact, an evaluator LLM is queried to attribute the error to specific words and tokens in the generation. Each word also receives syntactic annotations (dependency role, subtree size, parse depth) from spaCy. Results are saved to `{exp_name}_{dataset}_evals_factwise.pkl`.
 
 ```bash
 python evaluate_answers.py \
